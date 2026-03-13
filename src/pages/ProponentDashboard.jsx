@@ -1,64 +1,34 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { supabase } from "../lib/supabaseClient";
 
-const seedApplications = [
-  {
-    id: "EC-2023-0842",
-    name: "Solar Farm Expansion Phase II",
-    category: "Renewable Energy",
-    status: "Under Review",
-    date: "Oct 12, 2023",
-    documentLink: "https://drive.google.com/drive/folders/sample-1",
-  },
-  {
-    id: "EC-2023-0711",
-    name: "Wetland Remediation Plan",
-    category: "Conservation",
-    status: "Deficiency",
-    date: "Sep 28, 2023",
-    documentLink: "https://drive.google.com/drive/folders/sample-2",
-    deficiencyMessage:
-      "Deficiency raised by scrutiny team: Missing hydro-geology annexure and signed environmental compliance statement.",
-  },
-  {
-    id: "EC-2023-0659",
-    name: "Industrial Waste Management",
-    category: "Waste Systems",
-    status: "Finalized",
-    date: "Sep 15, 2023",
-    documentLink: "https://drive.google.com/drive/folders/sample-3",
-  },
-  {
-    id: "EC-2023-0544",
-    name: "Urban Greenery Project",
-    category: "Urban Planning",
-    status: "Submitted",
-    date: "Aug 30, 2023",
-    documentLink: "https://drive.google.com/drive/folders/sample-4",
-  },
-  {
-    id: "EC-2023-0422",
-    name: "Coastal Wind Turbine Alpha",
-    category: "Renewable Energy",
-    status: "Draft",
-    date: "Not Submitted",
-    documentLink: "https://drive.google.com/drive/folders/sample-5",
-  },
-];
+const APPLICATION_DOCUMENT_BUCKET = "application-documents";
 
-const sectorCategories = [
-  "Infrastructure Sector",
-  "Industrial Waste Sector",
-  "Renewable Energy Sector",
-];
+const STATUS_LABELS = {
+  draft: "Draft",
+  submitted: "Submitted",
+  under_scrutiny: "Under Scrutiny",
+  under_review: "Under Review",
+  deficiency: "Deficiency",
+  deficiency_raised: "Deficiency",
+  referred: "Referred",
+  mom_generated: "MoM Generated",
+  finalized: "Finalized",
+  meeting_scheduled: "Meeting Scheduled",
+  minutes_draft: "Minutes Draft",
+};
 
 function ProponentDashboard() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { signOut } = useAuth();
+  const { signOut, user } = useAuth();
   const [activeView, setActiveView] = useState("dashboard");
-  const [applications, setApplications] = useState(seedApplications);
+  const [applications, setApplications] = useState([]);
+  const [applicationsLoading, setApplicationsLoading] = useState(true);
+  const [applicationsError, setApplicationsError] = useState("");
+  const [isSubmittingApplication, setIsSubmittingApplication] = useState(false);
+  const [deficiencyCaseId, setDeficiencyCaseId] = useState(null);
   const [creationMessage, setCreationMessage] = useState("");
   const [form, setForm] = useState({
     projectName: "",
@@ -67,6 +37,9 @@ function ProponentDashboard() {
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [allowMultipleFiles, setAllowMultipleFiles] = useState(true);
   const [formErrors, setFormErrors] = useState({});
+  const [sectorCategories, setSectorCategories] = useState([]);
+  const [sectorsLoading, setSectorsLoading] = useState(true);
+  const [sectorsError, setSectorsError] = useState("");
   const fileInputRef = useRef(null);
 
   const dashboardNavItems = [
@@ -105,6 +78,10 @@ function ProponentDashboard() {
   ];
 
   const recentApplications = applications.slice(0, 5);
+  const deficiencyCase = useMemo(
+    () => applications.find((application) => application.dbId === deficiencyCaseId) ?? null,
+    [applications, deficiencyCaseId],
+  );
   const workflowApplicationId = useMemo(
     () => new URLSearchParams(location.search).get("workflow"),
     [location.search],
@@ -118,6 +95,7 @@ function ProponentDashboard() {
   const selectView = (view) => {
     setActiveView(view);
     if (view !== "my-apps") setCreationMessage("");
+    if (view !== "new-app") setDeficiencyCaseId(null);
   };
 
   const openWorkflowWindow = (applicationId) => {
@@ -128,67 +106,34 @@ function ProponentDashboard() {
     );
   };
 
+  const openDeficiencyResolution = (application) => {
+    if (!application?.dbId) return;
+
+    setDeficiencyCaseId(application.dbId);
+    setForm({
+      projectName: application.name || "",
+      category: application.category || "",
+    });
+    setSelectedFiles([]);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    setFormErrors({});
+    setCreationMessage("");
+    setActiveView("new-app");
+  };
+
   const handleFormChange = (field) => (event) => {
     const value = event.target.value;
     setForm((current) => ({ ...current, [field]: value }));
     setFormErrors((current) => ({ ...current, [field]: "" }));
   };
 
-  const handleCreateApplication = (event) => {
+  const handleCreateApplication = async (event) => {
     event.preventDefault();
-
-    const nextErrors = {};
-    if (!form.projectName.trim()) nextErrors.projectName = "Project name is required.";
-    if (!form.category.trim()) nextErrors.category = "Category is required.";
-    if (selectedFiles.length === 0) {
-      nextErrors.documents = "At least one PDF file is required.";
-    } else if (!selectedFiles.every((file) => isPdfFile(file))) {
-      nextErrors.documents = "Only PDF files are allowed.";
-    }
-
-    setFormErrors(nextErrors);
-    if (Object.keys(nextErrors).length > 0) return;
-
-    const newApplication = {
-      id: `TEMP-${String(applications.length + 1).padStart(4, "0")}`,
-      name: form.projectName.trim(),
-      category: form.category.trim(),
-      status: "Submitted",
-      date: toDisplayDate(new Date()),
-      documentNames: selectedFiles.map((file) => file.name),
-      documentCount: selectedFiles.length,
-    };
-
-    setApplications((current) => [newApplication, ...current]);
-    setForm({ projectName: "", category: "" });
-    setSelectedFiles([]);
-    if (fileInputRef.current) fileInputRef.current.value = "";
-    setCreationMessage(
-      "Application created. Application ID is temporary and will be fetched from backend later.",
-    );
-    setActiveView("my-apps");
+    await createApplication("submitted");
   };
 
-  const handleSaveDraft = () => {
-    const draftApplication = {
-      id: `TEMP-${String(applications.length + 1).padStart(4, "0")}`,
-      name: form.projectName.trim() || "Untitled Draft",
-      category: form.category.trim() || "Not Selected",
-      status: "Draft",
-      date: "Not Submitted",
-      documentNames: selectedFiles.map((file) => file.name),
-      documentCount: selectedFiles.length,
-    };
-
-    setApplications((current) => [draftApplication, ...current]);
-    setForm({ projectName: "", category: "" });
-    setSelectedFiles([]);
-    if (fileInputRef.current) fileInputRef.current.value = "";
-    setFormErrors({});
-    setCreationMessage(
-      "Draft saved. You can resume and submit this application later.",
-    );
-    setActiveView("my-apps");
+  const handleSaveDraft = async () => {
+    await createApplication("draft");
   };
 
   const handleFileSelection = (event) => {
@@ -206,6 +151,245 @@ function ProponentDashboard() {
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
+
+  const mapDbApplicationToViewModel = (row) => {
+    const status = mapStatusLabel(row?.status);
+    const submittedAt = row?.submitted_at ? new Date(row.submitted_at) : null;
+    const createdAt = row?.created_at ? new Date(row.created_at) : null;
+
+    return {
+      dbId: row?.id || null,
+      dbStatus: row?.status || null,
+      id: row?.application_code || row?.id || "N/A",
+      name: row?.project_name || "Untitled Application",
+      category: row?.sector_category || "Not Selected",
+      status,
+      date:
+        status === "Draft"
+          ? "Not Submitted"
+          : toDisplayDate(submittedAt || createdAt || new Date()),
+      deficiencyMessage: row?.deficiency_message || "",
+    };
+  };
+
+  const loadApplications = async () => {
+    if (!user?.id) {
+      setApplications([]);
+      setApplicationsLoading(false);
+      setApplicationsError("");
+      return;
+    }
+
+    setApplicationsLoading(true);
+    setApplicationsError("");
+
+    const { data, error } = await supabase
+      .from("applications")
+      .select(
+        "id, application_code, project_name, sector_category, status, submitted_at, created_at, deficiency_message",
+      )
+      .eq("proponent_id", user.id)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      setApplications([]);
+      setApplicationsError(error.message || "Failed to load applications.");
+      setApplicationsLoading(false);
+      return;
+    }
+
+    setApplications((data ?? []).map(mapDbApplicationToViewModel));
+    setApplicationsLoading(false);
+  };
+
+  const uploadApplicationDocuments = async (applicationId, files) => {
+    if (!files?.length) return;
+
+    const metadataRows = [];
+
+    for (const file of files) {
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const filePath = `${user.id}/${applicationId}/${Date.now()}-${safeName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from(APPLICATION_DOCUMENT_BUCKET)
+        .upload(filePath, file, {
+          cacheControl: "3600",
+          upsert: false,
+          contentType: file.type || "application/pdf",
+        });
+
+      if (uploadError) throw new Error(uploadError.message || "File upload failed.");
+
+      metadataRows.push({
+        application_id: applicationId,
+        file_name: file.name,
+        storage_path: filePath,
+        mime_type: file.type || "application/pdf",
+        file_size: Number(file.size) || 0,
+      });
+    }
+
+    const { error: documentsError } = await supabase
+      .from("application_documents")
+      .insert(metadataRows);
+
+    if (documentsError) {
+      throw new Error(documentsError.message || "Failed to store document metadata.");
+    }
+  };
+
+  const createApplication = async (status) => {
+    const nextErrors = {};
+    const isDeficiencyResubmission = Boolean(deficiencyCaseId);
+
+    if (!isDeficiencyResubmission && status === "submitted") {
+      if (!form.projectName.trim()) nextErrors.projectName = "Project name is required.";
+      if (!form.category.trim()) nextErrors.category = "Category is required.";
+    }
+
+    if (status === "submitted" || isDeficiencyResubmission) {
+      if (selectedFiles.length === 0) {
+        nextErrors.documents = "At least one PDF file is required.";
+      } else if (!selectedFiles.every((file) => isPdfFile(file))) {
+        nextErrors.documents = "Only PDF files are allowed.";
+      }
+    } else if (!selectedFiles.every((file) => isPdfFile(file))) {
+      nextErrors.documents = "Only PDF files are allowed.";
+    }
+
+    setFormErrors(nextErrors);
+    if (Object.keys(nextErrors).length > 0) return;
+
+    if (!user?.id) {
+      setFormErrors({ submit: "You must be logged in to create applications." });
+      return;
+    }
+
+    setIsSubmittingApplication(true);
+    setFormErrors((current) => ({ ...current, submit: "" }));
+
+    if (isDeficiencyResubmission) {
+      try {
+        await uploadApplicationDocuments(deficiencyCaseId, selectedFiles);
+
+        const { error: resubmitError } = await supabase
+          .from("applications")
+          .update({
+            status: "submitted",
+            deficiency_message: null,
+            submitted_at: new Date().toISOString(),
+          })
+          .eq("id", deficiencyCaseId);
+
+        if (resubmitError) {
+          throw new Error(resubmitError.message || "Failed to resubmit deficiency application.");
+        }
+
+        setSelectedFiles([]);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+        setFormErrors({});
+        setCreationMessage("Deficiency response submitted. New documents were uploaded successfully.");
+        setDeficiencyCaseId(null);
+        await loadApplications();
+        setActiveView("my-apps");
+      } catch (error) {
+        setFormErrors((current) => ({
+          ...current,
+          submit: error?.message || "Failed to upload deficiency documents.",
+        }));
+      } finally {
+        setIsSubmittingApplication(false);
+      }
+      return;
+    }
+
+    const payload = {
+      proponent_id: user.id,
+      project_name:
+        status === "draft" ? form.projectName.trim() || "Untitled Draft" : form.projectName.trim(),
+      sector_category:
+        status === "draft" ? form.category.trim() || "Not Selected" : form.category.trim(),
+      status,
+      allow_multiple_files: allowMultipleFiles,
+      document_count: selectedFiles.length,
+      submitted_at: status === "submitted" ? new Date().toISOString() : null,
+    };
+
+    const { data: createdApplication, error: createError } = await supabase
+      .from("applications")
+      .insert(payload)
+      .select("id")
+      .single();
+
+    if (createError || !createdApplication?.id) {
+      setIsSubmittingApplication(false);
+      setFormErrors((current) => ({
+        ...current,
+        submit: createError?.message || "Failed to create application.",
+      }));
+      return;
+    }
+
+    try {
+      await uploadApplicationDocuments(createdApplication.id, selectedFiles);
+
+      setForm({ projectName: "", category: "" });
+      setSelectedFiles([]);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      setFormErrors({});
+
+      setCreationMessage(
+        status === "draft"
+          ? "Draft saved to database. You can resume and submit this application later."
+          : "Application created and stored in database successfully.",
+      );
+
+      await loadApplications();
+      setActiveView("my-apps");
+    } catch (error) {
+      setFormErrors((current) => ({
+        ...current,
+        submit:
+          error?.message ||
+          "Application was created, but document upload failed. Please contact admin.",
+      }));
+    } finally {
+      setIsSubmittingApplication(false);
+    }
+  };
+
+  const loadSectorCategories = async () => {
+    setSectorsLoading(true);
+    setSectorsError("");
+
+    const { data, error } = await supabase
+      .from("sectors")
+      .select("name")
+      .order("name", { ascending: true });
+
+    if (error) {
+      setSectorsError(error.message || "Failed to load sector categories.");
+      setSectorCategories([]);
+      setSectorsLoading(false);
+      return;
+    }
+
+    const categoryNames = (data ?? [])
+      .map((item) => item.name)
+      .filter((name) => typeof name === "string" && name.trim().length > 0);
+
+    setSectorCategories(categoryNames);
+    setSectorsLoading(false);
+  };
+
+  useEffect(() => {
+    loadSectorCategories();
+  }, []);
+
+  useEffect(() => {
+    loadApplications();
+  }, [user?.id]);
 
   const handleLogout = async () => {
     try {
@@ -336,7 +520,22 @@ function ProponentDashboard() {
                     </div>
                   </div>
 
-                  <ApplicationsTable applications={recentApplications} />
+                  {applicationsError ? (
+                    <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 px-6 py-4">
+                      <p className="text-sm font-medium text-rose-600">{applicationsError}</p>
+                      <button className="dashboard-ghost-button" onClick={loadApplications} type="button">
+                        Retry
+                      </button>
+                    </div>
+                  ) : null}
+
+                  {applicationsLoading ? (
+                    <div className="px-6 py-6 text-sm font-medium text-[#5d6f89]">
+                      Loading applications from database...
+                    </div>
+                  ) : (
+                    <ApplicationsTable applications={recentApplications} />
+                  )}
 
                   <div className="dashboard-panel-footer">
                     <p>Showing {Math.min(5, applications.length)} of {applications.length} applications</p>
@@ -390,8 +589,12 @@ function ProponentDashboard() {
               <section className="space-y-6">
                 <section className="dashboard-heading">
                   <div>
-                    <h1>New Application</h1>
-                    <p>Create an environmental clearance application for review.</p>
+                    <h1>{deficiencyCase ? "Resolve Deficiency" : "New Application"}</h1>
+                    <p>
+                      {deficiencyCase
+                        ? "Upload corrected documents for the flagged application."
+                        : "Create an environmental clearance application for review."}
+                    </p>
                   </div>
                 </section>
 
@@ -407,11 +610,17 @@ function ProponentDashboard() {
                       </label>
                       <input
                         className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-base text-[#1f2c40] outline-none transition focus:border-[#124734] focus:ring-2 focus:ring-[#124734]/15"
+                        disabled={Boolean(deficiencyCase)}
                         onChange={handleFormChange("projectName")}
                         placeholder="Enter project name"
                         type="text"
                         value={form.projectName}
                       />
+                      {deficiencyCase ? (
+                        <p className="text-sm font-medium text-[#5d6f89]">
+                          Project name is locked for deficiency resubmission.
+                        </p>
+                      ) : null}
                       {formErrors.projectName ? (
                         <p className="text-sm font-medium text-rose-600">{formErrors.projectName}</p>
                       ) : null}
@@ -423,16 +632,45 @@ function ProponentDashboard() {
                       </label>
                       <select
                         className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-base text-[#1f2c40] outline-none transition focus:border-[#124734] focus:ring-2 focus:ring-[#124734]/15"
+                        disabled={sectorsLoading || Boolean(deficiencyCase)}
                         onChange={handleFormChange("category")}
                         value={form.category}
                       >
-                        <option value="">Select sector category</option>
+                        <option value="">
+                          {sectorsLoading
+                            ? "Loading sector categories..."
+                            : "Select sector category"}
+                        </option>
                         {sectorCategories.map((sectorName) => (
                           <option key={sectorName} value={sectorName}>
                             {sectorName}
                           </option>
                         ))}
                       </select>
+                      {!sectorsLoading && sectorsError ? (
+                        <div className="flex flex-wrap items-center gap-3">
+                          <p className="text-sm font-medium text-rose-600">{sectorsError}</p>
+                          <button
+                            className="dashboard-ghost-button"
+                            onClick={loadSectorCategories}
+                            type="button"
+                          >
+                            Retry
+                          </button>
+                        </div>
+                      ) : null}
+                      {!sectorsLoading &&
+                      !sectorsError &&
+                      sectorCategories.length === 0 ? (
+                        <p className="text-sm font-medium text-amber-700">
+                          No sectors found in database. Please ask admin to add sectors.
+                        </p>
+                      ) : null}
+                      {deficiencyCase ? (
+                        <p className="text-sm font-medium text-[#5d6f89]">
+                          Category is locked for deficiency resubmission.
+                        </p>
+                      ) : null}
                       {formErrors.category ? (
                         <p className="text-sm font-medium text-rose-600">{formErrors.category}</p>
                       ) : null}
@@ -469,20 +707,38 @@ function ProponentDashboard() {
                       ) : null}
                     </div>
 
+                    {formErrors.submit ? (
+                      <p className="text-sm font-medium text-rose-600">{formErrors.submit}</p>
+                    ) : null}
+
                     <div className="flex flex-wrap items-center gap-3">
+                      {!deficiencyCase ? (
+                        <button
+                          className="dashboard-ghost-button"
+                          disabled={isSubmittingApplication}
+                          onClick={handleSaveDraft}
+                          type="button"
+                        >
+                          {isSubmittingApplication ? "Saving..." : "Save as Draft"}
+                        </button>
+                      ) : null}
                       <button
-                        className="dashboard-ghost-button"
-                        onClick={handleSaveDraft}
-                        type="button"
+                        className="dashboard-primary-button"
+                        disabled={isSubmittingApplication}
+                        type="submit"
                       >
-                        Save as Draft
-                      </button>
-                      <button className="dashboard-primary-button" type="submit">
                         <PlusIcon />
-                        <span>Create Application &amp; Pay</span>
+                        <span>
+                          {isSubmittingApplication
+                            ? "Creating..."
+                            : deficiencyCase
+                              ? "Upload Documents & Resubmit"
+                              : "Create Application & Pay"}
+                        </span>
                       </button>
                       <button
                         className="dashboard-ghost-button"
+                        disabled={isSubmittingApplication}
                         onClick={() => selectView("dashboard")}
                         type="button"
                       >
@@ -514,14 +770,30 @@ function ProponentDashboard() {
                     <h2>Applications List</h2>
                   </div>
 
-                  <ApplicationsTable
-                    applications={applications}
-                    enableWorkflowLinks
-                    onOpenWorkflow={openWorkflowWindow}
-                  />
+                  {applicationsError ? (
+                    <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 px-6 py-4">
+                      <p className="text-sm font-medium text-rose-600">{applicationsError}</p>
+                      <button className="dashboard-ghost-button" onClick={loadApplications} type="button">
+                        Retry
+                      </button>
+                    </div>
+                  ) : null}
+
+                  {applicationsLoading ? (
+                    <div className="px-6 py-6 text-sm font-medium text-[#5d6f89]">
+                      Loading applications from database...
+                    </div>
+                  ) : (
+                    <ApplicationsTable
+                      applications={applications}
+                      enableWorkflowLinks
+                      onOpenDeficiency={openDeficiencyResolution}
+                      onOpenWorkflow={openWorkflowWindow}
+                    />
+                  )}
 
                   <div className="dashboard-panel-footer">
-                    <p>Application ID will be fetched from database after backend integration.</p>
+                    <p>Applications are fetched from database.</p>
                     <p>Total: {applications.length}</p>
                   </div>
                 </article>
@@ -555,6 +827,7 @@ function ProponentDashboard() {
 function ApplicationsTable({
   applications,
   enableWorkflowLinks = false,
+  onOpenDeficiency,
   onOpenWorkflow,
 }) {
   return (
@@ -571,71 +844,90 @@ function ApplicationsTable({
           </tr>
         </thead>
         <tbody>
-          {applications.map((application) => (
-            <tr key={application.id}>
-              <td className="app-id">{application.id}</td>
-              <td className="app-name">
-                {enableWorkflowLinks ? (
-                  <button
-                    className="cursor-pointer border-0 bg-transparent p-0 text-left text-[inherit] font-[inherit] text-[#0f3f2f] underline-offset-4 hover:underline"
-                    onClick={() => onOpenWorkflow?.(application.id)}
-                    type="button"
-                  >
-                    {application.name}
-                  </button>
-                ) : (
-                  application.name
-                )}
-              </td>
-              <td className="app-category">{application.category}</td>
-              <td>
-                <span className={`status-chip is-${slugify(application.status)}`}>
-                  {application.status}
-                </span>
-              </td>
-              <td className="app-category">{application.date}</td>
-              <td className="align-right">
-                {application.status === "Finalized" ? (
-                  <details className="relative inline-block text-left">
-                    <summary className="inline-flex cursor-pointer list-none items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-[#124734] hover:bg-[#f2f8f4]">
-                      Download
-                    </summary>
-                    <div className="absolute right-0 z-10 mt-2 min-w-[190px] rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
-                      <button
-                        className="block w-full rounded-md px-3 py-2 text-left text-sm text-[#1f3048] hover:bg-slate-50"
-                        onClick={() => exportApplicationRecord(application, "word")}
-                        type="button"
-                      >
-                        Export as Word
-                      </button>
-                      <button
-                        className="block w-full rounded-md px-3 py-2 text-left text-sm text-[#1f3048] hover:bg-slate-50"
-                        onClick={() => exportApplicationRecord(application, "pdf")}
-                        type="button"
-                      >
-                        Export as PDF
-                      </button>
-                    </div>
-                  </details>
-                ) : null}
-
-                {application.status === "Deficiency" ? (
-                  <span
-                    className="inline-block max-w-[320px] rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-left text-sm font-medium text-rose-700"
-                    title={application.deficiencyMessage || "Deficiency raised by scrutiny team."}
-                  >
-                    {application.deficiencyMessage || "Deficiency raised by scrutiny team."}
-                  </span>
-                ) : null}
-
-                {application.status !== "Finalized" && application.status !== "Deficiency" ? (
-                  <button className="table-action" title="More actions" type="button">
-                    <MoreIcon />
-                  </button>
-                ) : null}
+          {applications.length === 0 ? (
+            <tr>
+              <td className="px-6 py-8 text-center text-sm font-medium text-[#5d6f89]" colSpan={6}>
+                No applications found.
               </td>
             </tr>
-          ))}
+          ) : (
+            applications.map((application) => (
+              <tr key={application.id}>
+                <td className="app-id">{application.id}</td>
+                <td className="app-name">
+                  {enableWorkflowLinks ? (
+                    <button
+                      className="cursor-pointer border-0 bg-transparent p-0 text-left text-[inherit] font-[inherit] text-[#0f3f2f] underline-offset-4 hover:underline"
+                      onClick={() => onOpenWorkflow?.(application.id)}
+                      type="button"
+                    >
+                      {application.name}
+                    </button>
+                  ) : (
+                    application.name
+                  )}
+                </td>
+                <td className="app-category">{application.category}</td>
+                <td>
+                  <span className={`status-chip is-${slugify(application.status)}`}>
+                    {application.status}
+                  </span>
+                </td>
+                <td className="app-category">{application.date}</td>
+                <td className="align-right">
+                  {application.status === "Finalized" ? (
+                    <details className="relative inline-block text-left">
+                      <summary className="inline-flex cursor-pointer list-none items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-[#124734] hover:bg-[#f2f8f4]">
+                        Download
+                      </summary>
+                      <div className="absolute right-0 z-10 mt-2 min-w-[190px] rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
+                        <button
+                          className="block w-full rounded-md px-3 py-2 text-left text-sm text-[#1f3048] hover:bg-slate-50"
+                          onClick={() => exportApplicationRecord(application, "word")}
+                          type="button"
+                        >
+                          Export as Word
+                        </button>
+                        <button
+                          className="block w-full rounded-md px-3 py-2 text-left text-sm text-[#1f3048] hover:bg-slate-50"
+                          onClick={() => exportApplicationRecord(application, "pdf")}
+                          type="button"
+                        >
+                          Export as PDF
+                        </button>
+                      </div>
+                    </details>
+                  ) : null}
+
+                  {application.status === "Deficiency" ? (
+                    onOpenDeficiency ? (
+                      <button
+                        className="inline-block max-w-[320px] rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-left text-sm font-semibold text-rose-700 underline decoration-rose-400 underline-offset-2 hover:bg-rose-100"
+                        onClick={() => onOpenDeficiency(application)}
+                        title="Resolve deficiency by uploading revised documents"
+                        type="button"
+                      >
+                        {application.deficiencyMessage || "Deficiency raised by scrutiny team."}
+                      </button>
+                    ) : (
+                      <span
+                        className="inline-block max-w-[320px] rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-left text-sm font-medium text-rose-700"
+                        title={application.deficiencyMessage || "Deficiency raised by scrutiny team."}
+                      >
+                        {application.deficiencyMessage || "Deficiency raised by scrutiny team."}
+                      </span>
+                    )
+                  ) : null}
+
+                  {application.status !== "Finalized" && application.status !== "Deficiency" ? (
+                    <button className="table-action" title="More actions" type="button">
+                      <MoreIcon />
+                    </button>
+                  ) : null}
+                </td>
+              </tr>
+            ))
+          )}
         </tbody>
       </table>
     </div>
@@ -767,7 +1059,10 @@ function exportApplicationRecord(application, format) {
 }
 
 function toDisplayDate(value) {
-  return value.toLocaleDateString("en-US", {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "Not Submitted";
+
+  return date.toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
     year: "numeric",
@@ -777,6 +1072,22 @@ function toDisplayDate(value) {
 function isPdfFile(file) {
   const name = file?.name?.toLowerCase() ?? "";
   return file?.type === "application/pdf" || name.endsWith(".pdf");
+}
+
+function mapStatusLabel(rawStatus) {
+  const key = String(rawStatus ?? "")
+    .trim()
+    .toLowerCase();
+
+  if (!key) return "Draft";
+  return STATUS_LABELS[key] || toTitleCaseStatus(key);
+}
+
+function toTitleCaseStatus(statusKey) {
+  return statusKey
+    .split("_")
+    .map((chunk) => chunk.charAt(0).toUpperCase() + chunk.slice(1))
+    .join(" ");
 }
 
 function slugify(value) {

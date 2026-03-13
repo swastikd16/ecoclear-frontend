@@ -13,56 +13,12 @@ import {
   Share2,
   ShieldCheck,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { supabase } from "../lib/supabaseClient";
 
-const initialScrutinyCases = [
-  {
-    id: "APP-29402",
-    entity: "GreenWave Energy Corp",
-    projectName: "Chemical Plant Upgrade",
-    category: "Industrial Waste Sector",
-    dateSubmitted: "Oct 12, 2023",
-    status: "Under Scrutiny",
-    priority: "High",
-    notes: "Initial impact study needs cross-check of toxic runoff controls.",
-    documents: ["EIA_Report.pdf", "Site_Plan.pdf", "Water_Sampling.pdf"],
-  },
-  {
-    id: "APP-29405",
-    entity: "Terraform Dynamics",
-    projectName: "Urban Expansion Package",
-    category: "Infrastructure Sector",
-    dateSubmitted: "Oct 14, 2023",
-    status: "Submitted",
-    priority: "Normal",
-    notes: "Project moved to scrutiny queue after submission verification.",
-    documents: ["Layout_MasterPlan.pdf", "Compliance_Checklist.pdf"],
-  },
-  {
-    id: "APP-29408",
-    entity: "Solaris Grid Labs",
-    projectName: "Solar Farm Delta",
-    category: "Renewable Energy Sector",
-    dateSubmitted: "Oct 15, 2023",
-    status: "Referred to MoM",
-    priority: "Normal",
-    notes: "All documents verified and referred to MoM team.",
-    documents: ["Panel_Specs.pdf", "Site_Survey.pdf", "Impact_Summary.pdf"],
-  },
-  {
-    id: "APP-29412",
-    entity: "HydroPure Systems",
-    projectName: "Water Treatment Expansion",
-    category: "Infrastructure Sector",
-    dateSubmitted: "Oct 15, 2023",
-    status: "Deficiency",
-    priority: "High",
-    notes: "Structural certificate and annexures are missing.",
-    documents: ["Plant_Overview.pdf"],
-  },
-];
+const APPLICATION_DOCUMENT_BUCKET = "application-documents";
 
 const sidebarItems = [
   { key: "dashboard", label: "Dashboard", icon: LayoutDashboard, route: "/scrutiny-dashboard" },
@@ -90,21 +46,27 @@ function ScrutinyDashboard() {
   const navigate = useNavigate();
   const location = useLocation();
   const { signOut } = useAuth();
-  const [cases, setCases] = useState(initialScrutinyCases);
+  const [cases, setCases] = useState([]);
+  const [casesLoading, setCasesLoading] = useState(true);
+  const [casesError, setCasesError] = useState("");
+  const [isUpdatingCase, setIsUpdatingCase] = useState(false);
   const [reviewNote, setReviewNote] = useState("");
 
   const currentView = useMemo(() => getViewFromPath(location.pathname), [location.pathname]);
 
   const underScrutinyCases = useMemo(
-    () => cases.filter((item) => item.status === "Under Scrutiny" || item.status === "Submitted"),
+    () =>
+      cases.filter(
+        (item) => item.dbStatus === "under_scrutiny" || item.dbStatus === "submitted",
+      ),
     [cases],
   );
   const deficiencyCases = useMemo(
-    () => cases.filter((item) => item.status === "Deficiency"),
+    () => cases.filter((item) => item.dbStatus === "deficiency_raised"),
     [cases],
   );
   const referredCases = useMemo(
-    () => cases.filter((item) => item.status === "Referred to MoM"),
+    () => cases.filter((item) => item.dbStatus === "referred" || item.dbStatus === "mom_generated"),
     [cases],
   );
   const highPriorityCases = useMemo(
@@ -128,53 +90,176 @@ function ScrutinyDashboard() {
     );
   };
 
-  const downloadMockPdf = (caseId, fileName) => {
-    const mockPdfContent = [
-      "%PDF-1.1",
-      `EcoClear Mock Document`,
-      `Application: ${caseId}`,
-      `File: ${fileName}`,
-      "Generated for hackathon demo flow.",
-    ].join("\n");
-    const blob = new Blob([mockPdfContent], { type: "application/pdf" });
-    const url = URL.createObjectURL(blob);
+  const loadScrutinyCases = async () => {
+    setCasesLoading(true);
+    setCasesError("");
+
+    const { data: applicationRows, error: applicationsError } = await supabase
+      .from("applications")
+      .select(
+        "id, application_code, proponent_id, project_name, sector_category, status, submitted_at, created_at, deficiency_message, document_count",
+      )
+      .order("created_at", { ascending: false });
+
+    if (applicationsError) {
+      setCases([]);
+      setCasesError(applicationsError.message || "Failed to load applications.");
+      setCasesLoading(false);
+      return;
+    }
+
+    const applications = applicationRows ?? [];
+    if (applications.length === 0) {
+      setCases([]);
+      setCasesLoading(false);
+      return;
+    }
+
+    const proponentIds = [...new Set(applications.map((item) => item.proponent_id).filter(Boolean))];
+    const applicationIds = applications.map((item) => item.id);
+
+    const [usersResult, docsResult] = await Promise.all([
+      supabase
+        .from("users")
+        .select("id, full_name, username")
+        .in("id", proponentIds),
+      supabase
+        .from("application_documents")
+        .select("id, application_id, file_name, storage_path")
+        .in("application_id", applicationIds),
+    ]);
+
+    if (usersResult.error) {
+      setCases([]);
+      setCasesError(usersResult.error.message || "Failed to load applicant details.");
+      setCasesLoading(false);
+      return;
+    }
+
+    if (docsResult.error) {
+      setCases([]);
+      setCasesError(docsResult.error.message || "Failed to load application documents.");
+      setCasesLoading(false);
+      return;
+    }
+
+    const usersById = new Map((usersResult.data ?? []).map((item) => [item.id, item]));
+    const documentsByApplicationId = new Map();
+
+    for (const doc of docsResult.data ?? []) {
+      const current = documentsByApplicationId.get(doc.application_id) ?? [];
+      current.push({
+        id: doc.id,
+        fileName: doc.file_name,
+        storagePath: doc.storage_path,
+      });
+      documentsByApplicationId.set(doc.application_id, current);
+    }
+
+    const mappedCases = applications.map((item) => {
+      const applicant = usersById.get(item.proponent_id);
+      const displayName = applicant?.full_name?.trim() || applicant?.username || "Unknown Proponent";
+      const uiStatus = getScrutinyStatusLabel(item.status);
+      const docs = documentsByApplicationId.get(item.id) ?? [];
+
+      return {
+        dbId: item.id,
+        id: item.application_code || item.id,
+        entity: displayName,
+        projectName: item.project_name || "Untitled Project",
+        category: item.sector_category || "Not Selected",
+        dateSubmitted: toDisplayDate(item.submitted_at || item.created_at),
+        status: uiStatus,
+        dbStatus: item.status,
+        priority: getCasePriority(item, docs),
+        notes:
+          item.deficiency_message ||
+          (uiStatus === "Referred to MoM"
+            ? "All documents verified and referred to MoM team."
+            : "Under scrutiny review by team."),
+        documents: docs,
+      };
+    });
+
+    setCases(mappedCases);
+    setCasesLoading(false);
+  };
+
+  useEffect(() => {
+    loadScrutinyCases();
+  }, []);
+
+  const downloadCaseDocument = async (caseId, documentItem) => {
+    if (!documentItem?.storagePath) return;
+
+    const { data, error } = await supabase.storage
+      .from(APPLICATION_DOCUMENT_BUCKET)
+      .download(documentItem.storagePath);
+
+    if (error || !data) {
+      // eslint-disable-next-line no-console
+      console.error("Failed to download document", error);
+      return;
+    }
+
+    const url = URL.createObjectURL(data);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = fileName;
+    anchor.download = documentItem.fileName || `${caseId}-document.pdf`;
     document.body.appendChild(anchor);
     anchor.click();
     document.body.removeChild(anchor);
     URL.revokeObjectURL(url);
   };
 
-  const approveCase = (caseId) => {
-    setCases((current) =>
-      current.map((item) =>
-        item.id === caseId
-          ? {
-              ...item,
-              status: "Referred to MoM",
-              notes: reviewNote.trim() || item.notes,
-            }
-          : item,
-      ),
-    );
+  const approveCase = async (caseId) => {
+    const currentCase = cases.find((item) => item.id === caseId);
+    if (!currentCase?.dbId) return;
+
+    setIsUpdatingCase(true);
+
+    const { error } = await supabase
+      .from("applications")
+      .update({
+        status: "referred",
+        deficiency_message: null,
+      })
+      .eq("id", currentCase.dbId);
+
+    if (error) {
+      setCasesError(error.message || "Failed to approve application.");
+      setIsUpdatingCase(false);
+      return;
+    }
+
+    await loadScrutinyCases();
+    setIsUpdatingCase(false);
     setReviewNote("");
     navigate("/scrutiny-dashboard/referred-cases");
   };
 
-  const raiseDeficiency = (caseId) => {
-    setCases((current) =>
-      current.map((item) =>
-        item.id === caseId
-          ? {
-              ...item,
-              status: "Deficiency",
-              notes: reviewNote.trim() || "Deficiency raised during document review.",
-            }
-          : item,
-      ),
-    );
+  const raiseDeficiency = async (caseId) => {
+    const currentCase = cases.find((item) => item.id === caseId);
+    if (!currentCase?.dbId) return;
+
+    setIsUpdatingCase(true);
+
+    const { error } = await supabase
+      .from("applications")
+      .update({
+        status: "deficiency_raised",
+        deficiency_message: reviewNote.trim() || "Deficiency raised during document review.",
+      })
+      .eq("id", currentCase.dbId);
+
+    if (error) {
+      setCasesError(error.message || "Failed to raise deficiency.");
+      setIsUpdatingCase(false);
+      return;
+    }
+
+    await loadScrutinyCases();
+    setIsUpdatingCase(false);
     setReviewNote("");
     navigate("/scrutiny-dashboard/deficiencies");
   };
@@ -285,7 +370,26 @@ function ScrutinyDashboard() {
           </header>
 
           <div className="space-y-6 p-6 lg:p-8">
-            {currentView.type === "dashboard" ? (
+            {casesError ? (
+              <div className="flex flex-wrap items-center gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3">
+                <p className="text-[18px] font-semibold text-rose-700">{casesError}</p>
+                <button
+                  className="rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-[17px] font-semibold text-rose-700 hover:bg-rose-100"
+                  onClick={loadScrutinyCases}
+                  type="button"
+                >
+                  Retry
+                </button>
+              </div>
+            ) : null}
+
+            {casesLoading ? (
+              <article className="rounded-2xl border border-slate-200 bg-white p-6 text-[22px] text-[#5c6f89] shadow-sm">
+                Loading application data from database...
+              </article>
+            ) : null}
+
+            {!casesLoading && currentView.type === "dashboard" ? (
               <DashboardSection
                 deficiencyCount={deficiencyCases.length}
                 highPriorityCases={highPriorityCases}
@@ -295,7 +399,7 @@ function ScrutinyDashboard() {
               />
             ) : null}
 
-            {currentView.type === "under-scrutiny" ? (
+            {!casesLoading && currentView.type === "under-scrutiny" ? (
               <CasesPage
                 cases={underScrutinyCases}
                 description="New applications submitted by proponents are reviewed here."
@@ -304,7 +408,7 @@ function ScrutinyDashboard() {
               />
             ) : null}
 
-            {currentView.type === "deficiencies" ? (
+            {!casesLoading && currentView.type === "deficiencies" ? (
               <CasesPage
                 cases={deficiencyCases}
                 description="Cases with missing or invalid documents are listed as deficiencies."
@@ -313,7 +417,7 @@ function ScrutinyDashboard() {
               />
             ) : null}
 
-            {currentView.type === "referred-cases" ? (
+            {!casesLoading && currentView.type === "referred-cases" ? (
               <CasesPage
                 cases={referredCases}
                 description="Approved cases are referred to MoM for meeting and minutes generation."
@@ -323,12 +427,13 @@ function ScrutinyDashboard() {
               />
             ) : null}
 
-            {currentView.type === "review" ? (
+            {!casesLoading && currentView.type === "review" ? (
               <ReviewPage
                 caseItem={selectedCase}
+                isUpdatingCase={isUpdatingCase}
                 onApprove={approveCase}
                 onBack={() => navigate("/scrutiny-dashboard/under-scrutiny")}
-                onDownload={downloadMockPdf}
+                onDownload={downloadCaseDocument}
                 onRaiseDeficiency={raiseDeficiency}
                 reviewNote={reviewNote}
                 setReviewNote={setReviewNote}
@@ -519,6 +624,7 @@ function ReviewPage({
   onDownload,
   onApprove,
   onRaiseDeficiency,
+  isUpdatingCase,
   reviewNote,
   setReviewNote,
 }) {
@@ -587,18 +693,21 @@ function ReviewPage({
         <article className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <h2 className="text-[34px] font-semibold text-[#111827]">Uploaded Documents</h2>
           <div className="mt-4 space-y-2">
-            {caseItem.documents.map((fileName) => (
+            {caseItem.documents.length === 0 ? (
+              <p className="text-[20px] text-[#5c6f89]">No uploaded documents found for this application.</p>
+            ) : null}
+            {caseItem.documents.map((documentItem) => (
               <div
                 className="flex items-center justify-between rounded-lg border border-slate-200 bg-[#fcfdfd] px-3 py-2"
-                key={fileName}
+                key={documentItem.id || documentItem.fileName}
               >
                 <span className="inline-flex items-center gap-2 text-[19px] text-[#1f3048]">
                   <FileText className="h-4 w-4 text-[#536a87]" />
-                  {fileName}
+                  {documentItem.fileName}
                 </span>
                 <button
                   className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-[16px] font-semibold text-[#124734] hover:bg-[#f2f8f4]"
-                  onClick={() => onDownload(caseItem.id, fileName)}
+                  onClick={() => onDownload(caseItem.id, documentItem)}
                   type="button"
                 >
                   <Download className="h-4 w-4" />
@@ -621,19 +730,21 @@ function ReviewPage({
           <div className="mt-5 grid gap-2 sm:grid-cols-2">
             <button
               className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#124734] px-4 py-2.5 text-[20px] font-semibold text-white hover:bg-[#0f3a2b]"
+              disabled={isUpdatingCase}
               onClick={() => onApprove(caseItem.id)}
               type="button"
             >
               <CheckCircle2 className="h-5 w-5" />
-              Approve & Refer to MoM
+              {isUpdatingCase ? "Updating..." : "Approve & Refer to MoM"}
             </button>
             <button
               className="inline-flex items-center justify-center gap-2 rounded-lg bg-rose-600 px-4 py-2.5 text-[20px] font-semibold text-white hover:bg-rose-700"
+              disabled={isUpdatingCase}
               onClick={() => onRaiseDeficiency(caseItem.id)}
               type="button"
             >
               <AlertTriangle className="h-5 w-5" />
-              Raise Deficiency
+              {isUpdatingCase ? "Updating..." : "Raise Deficiency"}
             </button>
           </div>
         </article>
@@ -688,6 +799,7 @@ function StatusBadge({ status }) {
     "Under Scrutiny": "bg-amber-100 text-amber-700",
     Deficiency: "bg-rose-100 text-rose-700",
     "Referred to MoM": "bg-emerald-100 text-emerald-700",
+    Referred: "bg-emerald-100 text-emerald-700",
   };
 
   return (
@@ -697,6 +809,40 @@ function StatusBadge({ status }) {
       {status}
     </span>
   );
+}
+
+function getScrutinyStatusLabel(rawStatus) {
+  const status = String(rawStatus ?? "")
+    .trim()
+    .toLowerCase();
+
+  if (status === "submitted") return "Submitted";
+  if (status === "under_scrutiny") return "Under Scrutiny";
+  if (status === "deficiency_raised") return "Deficiency";
+  if (status === "referred" || status === "mom_generated") return "Referred to MoM";
+  return "Submitted";
+}
+
+function getCasePriority(applicationRow, documents) {
+  const documentCount = documents.length || Number(applicationRow.document_count) || 0;
+  const createdDate = new Date(applicationRow.created_at || Date.now());
+  const ageInDays = Number.isNaN(createdDate.getTime())
+    ? 0
+    : Math.floor((Date.now() - createdDate.getTime()) / (1000 * 60 * 60 * 24));
+
+  if (documentCount <= 1 || ageInDays >= 7) return "High";
+  return "Normal";
+}
+
+function toDisplayDate(value) {
+  const date = value ? new Date(value) : null;
+  if (!date || Number.isNaN(date.getTime())) return "Not Submitted";
+
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
 }
 
 export default ScrutinyDashboard;

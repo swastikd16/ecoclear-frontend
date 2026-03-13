@@ -26,6 +26,7 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { supabase } from "../lib/supabaseClient";
 
 const navItems = [
   { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -39,71 +40,68 @@ const navItems = [
   { key: "profile", label: "Profile", icon: UserCircle2 },
 ];
 
-const stageData = [
-  { stage: "Draft", value: 30 },
-  { stage: "Review", value: 56 },
-  { stage: "Pending", value: 42 },
-  { stage: "Approved", value: 72 },
-  { stage: "Rejected", value: 18 },
-  { stage: "Archived", value: 48 },
+const APPLICATION_STAGE_ORDER = [
+  { key: "draft", label: "Draft" },
+  { key: "submitted", label: "Submitted" },
+  { key: "under_review", label: "Under Review" },
+  { key: "deficiency", label: "Deficiency" },
+  { key: "referred", label: "Referred" },
+  { key: "mom_generated", label: "MoM Generated" },
+  { key: "finalized", label: "Finalized" },
 ];
 
-const initialUsers = [
-  {
-    username: "mom_user_01",
-    name: "Riya Sharma",
-    email: "riya.sharma@ecoclear.gov",
-    role: "MoM",
-  },
-  {
-    username: "scrutiny_user_07",
-    name: "Arjun Verma",
-    email: "arjun.verma@ecoclear.gov",
-    role: "Scrutiny",
-  },
-  {
-    username: "admin_02",
-    name: "Priya Nair",
-    email: "priya.nair@ecoclear.gov",
-    role: "Admin",
-  },
-  {
-    username: "prop_112",
-    name: "Naveen Kapoor",
-    email: "naveen.kapoor@ecoclear.gov",
-    role: "Proponent",
-  },
-  {
-    username: "mom_user_09",
-    name: "Sana Ali",
-    email: "sana.ali@ecoclear.gov",
-    role: "MoM",
-  },
-  {
-    username: "scrutiny_user_15",
-    name: "Karan Joshi",
-    email: "karan.joshi@ecoclear.gov",
-    role: "Scrutiny",
-  },
+const ROLE_OPTIONS = [
+  { value: "mom_team", label: "MoM" },
+  { value: "scrutiny_team", label: "Scrutiny" },
+  { value: "admin", label: "Admin" },
+  { value: "proponent", label: "Proponent" },
 ];
 
-const initialSectors = [
-  {
-    id: 1,
-    name: "Infrastructure Sector",
-    parameters: ["Project timeline", "Land acquisition"],
-  },
-  {
-    id: 2,
-    name: "Industrial Waste Sector",
-    parameters: ["Waste handling protocol", "Emission threshold"],
-  },
-  {
-    id: 3,
-    name: "Renewable Energy Sector",
-    parameters: ["Site sensitivity score", "Habitat impact assessment"],
-  },
-];
+function normalizeRoleValue(role) {
+  const value = String(role ?? "")
+    .trim()
+    .toLowerCase();
+  if (value === "mom_team") return "mom_team";
+  if (value === "scrutiny_team") return "scrutiny_team";
+  if (value === "admin") return "admin";
+  return "proponent";
+}
+
+function roleLabel(role) {
+  return ROLE_OPTIONS.find((option) => option.value === role)?.label ?? "Proponent";
+}
+
+function createEmptyStageCounts() {
+  return {
+    draft: 0,
+    submitted: 0,
+    under_review: 0,
+    deficiency: 0,
+    referred: 0,
+    mom_generated: 0,
+    finalized: 0,
+  };
+}
+
+function normalizeApplicationStage(status) {
+  const value = String(status ?? "")
+    .trim()
+    .toLowerCase();
+
+  if (value === "draft") return "draft";
+  if (value === "submitted") return "submitted";
+  if (value === "under_scrutiny" || value === "under_review" || value === "review") {
+    return "under_review";
+  }
+  if (value === "deficiency_raised" || value === "deficiency" || value === "rejected") {
+    return "deficiency";
+  }
+  if (value === "referred") return "referred";
+  if (value === "mom_generated") return "mom_generated";
+  if (value === "finalized" || value === "approved" || value === "archived") return "finalized";
+
+  return null;
+}
 
 const fieldTypeOptions = [
   { value: "short_text", label: "Short text" },
@@ -114,107 +112,6 @@ const fieldTypeOptions = [
   { value: "multi_line_list", label: "Multi-line list" },
   { value: "table_rows", label: "Table rows" },
   { value: "paragraph_block", label: "Paragraph block" },
-];
-
-const initialTemplates = [
-  {
-    id: "template_001",
-    name: "Formal Minutes of Meeting Template",
-    description:
-      "Template for official environmental clearance meeting documentation",
-    type: "MoM",
-    status: "active",
-    sector: "General",
-    createdBy: "Admin",
-    updatedAt: "2026-03-13",
-    sections: [
-      {
-        id: "sec_1",
-        title: "Meeting Details",
-        type: "group",
-        repeatable: false,
-        fields: [
-          { id: "f1", label: "Meeting Title", key: "meeting_title", fieldType: "short_text" },
-          { id: "f2", label: "Meeting Type", key: "meeting_type", fieldType: "short_text" },
-          { id: "f3", label: "Date", key: "date", fieldType: "date" },
-          { id: "f4", label: "Time", key: "time", fieldType: "time" },
-          { id: "f5", label: "Location", key: "location", fieldType: "short_text" },
-          { id: "f6", label: "Chairperson", key: "chairperson", fieldType: "short_text" },
-          { id: "f7", label: "Minute Taker", key: "minute_taker", fieldType: "short_text" },
-        ],
-      },
-      {
-        id: "sec_2",
-        title: "Participants & Agenda",
-        type: "group",
-        repeatable: true,
-        fields: [
-          { id: "f8", label: "Participants", key: "participants", fieldType: "multi_line_list" },
-          { id: "f9", label: "Agenda Items", key: "agenda_items", fieldType: "multi_line_list" },
-        ],
-      },
-      {
-        id: "sec_3",
-        title: "Discussion and Actions",
-        type: "group",
-        repeatable: false,
-        fields: [
-          {
-            id: "f10",
-            label: "Summary of Discussion",
-            key: "discussion_summary",
-            fieldType: "paragraph_block",
-          },
-          { id: "f11", label: "Decisions Taken", key: "decisions_taken", fieldType: "multi_line_list" },
-          {
-            id: "f12",
-            label: "Action Items",
-            key: "action_items",
-            fieldType: "table_rows",
-            columns: ["Task Description", "Responsible Person", "Due Date", "Status"],
-          },
-          { id: "f13", label: "Risks / Concerns Raised", key: "risks", fieldType: "long_text" },
-          { id: "f14", label: "Next Steps", key: "next_steps", fieldType: "long_text" },
-          {
-            id: "f15",
-            label: "Next Meeting Schedule",
-            key: "next_meeting_schedule",
-            fieldType: "short_text",
-          },
-        ],
-      },
-    ],
-  },
-  {
-    id: "template_002",
-    name: "Sector Review Minutes Template",
-    description: "Sector-specific template for MoM and decision documentation",
-    type: "MoM",
-    status: "draft",
-    sector: "Infrastructure Sector",
-    createdBy: "Admin",
-    updatedAt: "2026-03-12",
-    sections: [
-      {
-        id: "sec_a",
-        title: "Meeting Metadata",
-        type: "group",
-        repeatable: false,
-        fields: [
-          { id: "fa1", label: "Meeting Title", key: "meeting_title", fieldType: "short_text" },
-          { id: "fa2", label: "Date", key: "date", fieldType: "date" },
-          { id: "fa3", label: "Location", key: "location", fieldType: "short_text" },
-        ],
-      },
-      {
-        id: "sec_b",
-        title: "Resolutions",
-        type: "group",
-        repeatable: true,
-        fields: [{ id: "fb1", label: "Decisions Taken", key: "decisions_taken", fieldType: "multi_line_list" }],
-      },
-    ],
-  },
 ];
 
 function makeId(prefix) {
@@ -235,6 +132,30 @@ function todayISO() {
 
 function cloneTemplate(template) {
   return JSON.parse(JSON.stringify(template));
+}
+
+function normalizeTemplateStatus(status) {
+  return status === "active" ? "active" : "draft";
+}
+
+function toTemplateDate(value) {
+  const date = value ? new Date(value) : null;
+  if (!date || Number.isNaN(date.getTime())) return todayISO();
+  return date.toISOString().split("T")[0];
+}
+
+function mapTemplateRow(row) {
+  return {
+    id: row.id,
+    name: row.name ?? "Untitled Template",
+    description: row.description ?? "",
+    type: row.type ?? "MoM",
+    status: normalizeTemplateStatus(row.status),
+    sector: row.sector ?? "General",
+    createdBy: row.created_by ?? "Admin",
+    updatedAt: toTemplateDate(row.updated_at ?? row.created_at),
+    sections: Array.isArray(row.schema_json?.sections) ? row.schema_json.sections : [],
+  };
 }
 
 function createNewTemplateDraft(sectors) {
@@ -298,32 +219,44 @@ function AdminDashboard() {
   const location = useLocation();
   const { signOut } = useAuth();
   const [activeView, setActiveView] = useState("dashboard");
-  const [users, setUsers] = useState(initialUsers);
-  const [selectedUsername, setSelectedUsername] = useState(initialUsers[0].username);
-  const [pendingRole, setPendingRole] = useState(initialUsers[0].role);
+  const [users, setUsers] = useState([]);
+  const [usersLoading, setUsersLoading] = useState(true);
+  const [usersError, setUsersError] = useState("");
+  const [selectedUsername, setSelectedUsername] = useState("");
+  const [pendingRole, setPendingRole] = useState("proponent");
+  const [applicationStageCounts, setApplicationStageCounts] = useState(() =>
+    createEmptyStageCounts(),
+  );
+  const [applicationsLoading, setApplicationsLoading] = useState(true);
+  const [applicationsError, setApplicationsError] = useState("");
 
-  const [sectors, setSectors] = useState(initialSectors);
-  const [selectedSectorId, setSelectedSectorId] = useState(initialSectors[0].id);
+  const [sectors, setSectors] = useState([]);
+  const [sectorsLoading, setSectorsLoading] = useState(true);
+  const [sectorsError, setSectorsError] = useState("");
+  const [sectorsSaving, setSectorsSaving] = useState(false);
+  const [selectedSectorId, setSelectedSectorId] = useState(null);
   const [sectorMode, setSectorMode] = useState("edit");
   const [sectorForm, setSectorForm] = useState({
-    name: initialSectors[0].name,
-    parametersText: initialSectors[0].parameters.join("\n"),
+    name: "",
+    parametersText: "",
   });
 
-  const [templates, setTemplates] = useState(initialTemplates);
+  const [templates, setTemplates] = useState([]);
+  const [templatesLoading, setTemplatesLoading] = useState(true);
+  const [templatesError, setTemplatesError] = useState("");
   const [templateSearch, setTemplateSearch] = useState("");
   const [templateStatusFilter, setTemplateStatusFilter] = useState("all");
   const [templateDeleteTarget, setTemplateDeleteTarget] = useState(null);
   const [templateEditorMode, setTemplateEditorMode] = useState("new");
   const [templateEditorDraft, setTemplateEditorDraft] = useState(() =>
-    createNewTemplateDraft(initialSectors),
+    createNewTemplateDraft([]),
   );
   const [previewTemplateId, setPreviewTemplateId] = useState(null);
   const [showSectionDeleteConfirm, setShowSectionDeleteConfirm] = useState(null);
   const [toastMessage, setToastMessage] = useState("");
 
   const selectedUser = useMemo(
-    () => users.find((user) => user.username === selectedUsername) ?? users[0],
+    () => users.find((user) => user.username === selectedUsername) ?? null,
     [selectedUsername, users],
   );
 
@@ -333,16 +266,80 @@ function AdminDashboard() {
   );
 
   const roleCounts = useMemo(() => {
-    const counts = { MoM: 0, Scrutiny: 0, Admin: 0, Proponent: 0 };
+    const counts = {
+      mom_team: 0,
+      scrutiny_team: 0,
+      admin: 0,
+      proponent: 0,
+    };
     users.forEach((user) => {
-      if (counts[user.role] !== undefined) counts[user.role] += 1;
+      const normalizedRole = normalizeRoleValue(user.role);
+      counts[normalizedRole] += 1;
     });
     return counts;
   }, [users]);
 
+  const stageData = useMemo(
+    () =>
+      APPLICATION_STAGE_ORDER.map((stage) => ({
+        stage: stage.label,
+        value: applicationStageCounts[stage.key] ?? 0,
+      })),
+    [applicationStageCounts],
+  );
+
+  const submittedOrderCount = useMemo(
+    () =>
+      (applicationStageCounts.submitted ?? 0) +
+      (applicationStageCounts.deficiency ?? 0) +
+      (applicationStageCounts.under_review ?? 0) +
+      (applicationStageCounts.mom_generated ?? 0) +
+      (applicationStageCounts.referred ?? 0),
+    [applicationStageCounts],
+  );
+
+  const finalizedOrderCount = applicationStageCounts.finalized ?? 0;
+  const ordersCompletedPercent =
+    submittedOrderCount > 0 ? (finalizedOrderCount / submittedOrderCount) * 100 : 0;
+
   useEffect(() => {
-    if (selectedUser) setPendingRole(selectedUser.role);
-  }, [selectedUser]);
+    if (!users.length) {
+      setSelectedUsername("");
+      setPendingRole("proponent");
+      return;
+    }
+
+    const hasSelectedUser = users.some((user) => user.username === selectedUsername);
+
+    if (!hasSelectedUser) {
+      setSelectedUsername(users[0].username);
+      setPendingRole(normalizeRoleValue(users[0].role));
+      return;
+    }
+
+    if (selectedUser) {
+      setPendingRole(normalizeRoleValue(selectedUser.role));
+    }
+  }, [users, selectedUser, selectedUsername]);
+
+  useEffect(() => {
+    if (sectorsLoading) {
+      return;
+    }
+
+    if (!sectors.length) {
+      setSelectedSectorId(null);
+      if (sectorMode === "edit") {
+        setSectorMode("add");
+      }
+      return;
+    }
+
+    const hasSelectedSector = sectors.some((sector) => sector.id === selectedSectorId);
+    if (!hasSelectedSector) {
+      setSelectedSectorId(sectors[0].id);
+    }
+  }, [sectors, selectedSectorId, sectorMode, sectorsLoading]);
 
   useEffect(() => {
     if (sectorMode === "edit" && selectedSector) {
@@ -351,6 +348,10 @@ function AdminDashboard() {
         parametersText: selectedSector.parameters.join("\n"),
       });
     }
+
+    if (sectorMode === "add") {
+      setSectorForm({ name: "", parametersText: "" });
+    }
   }, [sectorMode, selectedSector]);
 
   useEffect(() => {
@@ -358,6 +359,113 @@ function AdminDashboard() {
     const timer = window.setTimeout(() => setToastMessage(""), 2400);
     return () => window.clearTimeout(timer);
   }, [toastMessage]);
+
+  const loadUsers = async () => {
+    setUsersLoading(true);
+    setUsersError("");
+
+    const { data, error } = await supabase
+      .from("users")
+      .select("id, username, full_name, email, role, created_at")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      setUsersError(error.message || "Failed to load users from database.");
+      setUsersLoading(false);
+      return;
+    }
+
+    setUsers(
+      (data ?? []).map((user) => ({
+        id: user.id,
+        username: user.username,
+        name: user.full_name || "-",
+        email: user.email,
+        role: normalizeRoleValue(user.role),
+      })),
+    );
+    setUsersLoading(false);
+  };
+
+  const loadSectors = async () => {
+    setSectorsLoading(true);
+    setSectorsError("");
+
+    const { data, error } = await supabase
+      .from("sectors")
+      .select("id, name, parameters, created_at")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      setSectorsError(error.message || "Failed to load sectors from database.");
+      setSectors([]);
+      setSectorsLoading(false);
+      return;
+    }
+
+    setSectors(
+      (data ?? []).map((sector) => ({
+        id: sector.id,
+        name: sector.name,
+        parameters: Array.isArray(sector.parameters) ? sector.parameters : [],
+      })),
+    );
+    setSectorsLoading(false);
+  };
+
+  const loadApplications = async () => {
+    setApplicationsLoading(true);
+    setApplicationsError("");
+
+    const { data, error } = await supabase.from("applications").select("status");
+
+    if (error) {
+      setApplicationsError(error.message || "Failed to load application stage data.");
+      setApplicationStageCounts(createEmptyStageCounts());
+      setApplicationsLoading(false);
+      return;
+    }
+
+    const nextCounts = createEmptyStageCounts();
+    (data ?? []).forEach((application) => {
+      const normalizedStage = normalizeApplicationStage(application.status);
+      if (normalizedStage) {
+        nextCounts[normalizedStage] += 1;
+      }
+    });
+
+    setApplicationStageCounts(nextCounts);
+    setApplicationsLoading(false);
+  };
+
+  const loadTemplates = async () => {
+    setTemplatesLoading(true);
+    setTemplatesError("");
+
+    const { data, error } = await supabase
+      .from("templates")
+      .select(
+        "id, name, description, type, status, sector, created_by, schema_json, created_at, updated_at",
+      )
+      .order("updated_at", { ascending: false });
+
+    if (error) {
+      setTemplates([]);
+      setTemplatesError(error.message || "Failed to load templates from database.");
+      setTemplatesLoading(false);
+      return;
+    }
+
+    setTemplates((data ?? []).map(mapTemplateRow));
+    setTemplatesLoading(false);
+  };
+
+  useEffect(() => {
+    loadUsers();
+    loadSectors();
+    loadApplications();
+    loadTemplates();
+  }, []);
 
   useEffect(() => {
     const path = location.pathname.replace(/\/+$/, "");
@@ -403,7 +511,7 @@ function AdminDashboard() {
         setTemplateEditorDraft(cloneTemplate(template));
         setShowSectionDeleteConfirm(null);
         setActiveView("templates-editor");
-      } else {
+      } else if (!templatesLoading) {
         setActiveView("templates");
       }
       return;
@@ -415,12 +523,12 @@ function AdminDashboard() {
       setPreviewTemplateId(templateId);
       setActiveView("templates-preview");
     }
-  }, [location.pathname, sectors, templates]);
+  }, [location.pathname, sectors, templates, templatesLoading]);
 
   const stats = [
     {
       label: "Total Users",
-      value: "24,512",
+      value: users.length.toLocaleString(),
       note: "+12.5% vs last month",
       noteClass: "text-emerald-600",
       icon: Users,
@@ -432,26 +540,26 @@ function AdminDashboard() {
       noteClass: "text-[#4f6583]",
       hideValue: true,
       details: [
-        `MoM: ${roleCounts.MoM}`,
-        `Scrutiny: ${roleCounts.Scrutiny}`,
-        `Admins: ${roleCounts.Admin}`,
-        `Proponents: ${roleCounts.Proponent}`,
+        `MoM: ${roleCounts.mom_team}`,
+        `Scrutiny: ${roleCounts.scrutiny_team}`,
+        `Admins: ${roleCounts.admin}`,
+        `Proponents: ${roleCounts.proponent}`,
       ],
       icon: UserCog,
       iconWrap: "bg-violet-100 text-violet-600",
     },
     {
       label: "Pending Actions",
-      value: "28 Issues",
-      note: "4 Urgent",
+      value: `${submittedOrderCount.toLocaleString()} Issues`,
+      note: `${applicationStageCounts.deficiency.toLocaleString()} Urgent`,
       noteClass: "text-rose-600",
       icon: FileText,
       iconWrap: "bg-amber-100 text-amber-700",
     },
     {
       label: "Total % Orders Completed",
-      value: "89.7%",
-      note: "Across all processed orders",
+      value: `${ordersCompletedPercent.toFixed(1)}%`,
+      note: `Finalized ${finalizedOrderCount.toLocaleString()} of ${submittedOrderCount.toLocaleString()} submitted workflow orders`,
       noteClass: "text-emerald-600",
       icon: CheckCircle2,
       iconWrap: "bg-emerald-100 text-emerald-700",
@@ -477,12 +585,27 @@ function AdminDashboard() {
     navigate("/admin-dashboard/role-assignment");
   };
 
-  const saveRoleAssignment = () => {
+  const saveRoleAssignment = async () => {
+    if (!selectedUsername) return;
+
+    const nextRole = normalizeRoleValue(pendingRole);
+
+    const { error } = await supabase
+      .from("users")
+      .update({ role: nextRole })
+      .eq("username", selectedUsername);
+
+    if (error) {
+      setToastMessage(`Failed to update role: ${error.message}`);
+      return;
+    }
+
     setUsers((current) =>
       current.map((user) =>
-        user.username === selectedUsername ? { ...user, role: pendingRole } : user,
+        user.username === selectedUsername ? { ...user, role: nextRole } : user,
       ),
     );
+    setToastMessage("Role updated successfully.");
     navigate("/admin-dashboard/users");
   };
 
@@ -499,7 +622,7 @@ function AdminDashboard() {
     navigate("/admin-dashboard/sector-parameters");
   };
 
-  const saveSector = () => {
+  const saveSector = async () => {
     const nextName = sectorForm.name.trim();
     const nextParameters = sectorForm.parametersText
       .split("\n")
@@ -507,26 +630,49 @@ function AdminDashboard() {
       .filter(Boolean);
 
     if (!nextName || nextParameters.length === 0) {
+      setToastMessage("Please provide sector name and at least one parameter.");
       return;
     }
 
+    setSectorsSaving(true);
+
     if (sectorMode === "add") {
-      const nextId = sectors.length > 0 ? Math.max(...sectors.map((s) => s.id)) + 1 : 1;
-      setSectors((current) => [
-        ...current,
-        { id: nextId, name: nextName, parameters: nextParameters },
-      ]);
-      setSelectedSectorId(nextId);
+      const { data, error } = await supabase
+        .from("sectors")
+        .insert({ name: nextName, parameters: nextParameters })
+        .select("id")
+        .single();
+
+      if (error) {
+        setToastMessage(`Failed to create sector: ${error.message}`);
+        setSectorsSaving(false);
+        return;
+      }
+
+      await loadSectors();
+      if (data?.id != null) setSelectedSectorId(data.id);
+      setToastMessage("Sector created successfully.");
     } else if (selectedSectorId != null) {
-      setSectors((current) =>
-        current.map((sector) =>
-          sector.id === selectedSectorId
-            ? { ...sector, name: nextName, parameters: nextParameters }
-            : sector,
-        ),
-      );
+      const { error } = await supabase
+        .from("sectors")
+        .update({ name: nextName, parameters: nextParameters })
+        .eq("id", selectedSectorId);
+
+      if (error) {
+        setToastMessage(`Failed to update sector: ${error.message}`);
+        setSectorsSaving(false);
+        return;
+      }
+
+      await loadSectors();
+      setToastMessage("Sector updated successfully.");
+    } else {
+      setToastMessage("Select a sector to edit.");
+      setSectorsSaving(false);
+      return;
     }
 
+    setSectorsSaving(false);
     navigate("/admin-dashboard/sectors");
   };
 
@@ -548,56 +694,108 @@ function AdminDashboard() {
     navigate(`/admin-dashboard/templates/${encodeURIComponent(templateId)}/preview`);
   };
 
-  const saveTemplateDraft = (status) => {
+  const saveTemplateDraft = async (status) => {
     const payload = {
       ...templateEditorDraft,
-      id: templateEditorMode === "new" ? makeId("template") : templateEditorDraft.id,
-      status,
+      status: normalizeTemplateStatus(status),
       updatedAt: todayISO(),
     };
+    const dbPayload = {
+      name: payload.name?.trim() || "Untitled Template",
+      description: payload.description?.trim() ?? "",
+      type: payload.type || "MoM",
+      status: payload.status,
+      sector: payload.sector || "General",
+      created_by: payload.createdBy || "Admin",
+      schema_json: { sections: payload.sections ?? [] },
+    };
 
-    if (templateEditorMode === "new") {
-      setTemplates((current) => [payload, ...current]);
+    if (templateEditorMode === "new" || !templateEditorDraft.id) {
+      const { error } = await supabase.from("templates").insert(dbPayload);
+      if (error) {
+        setToastMessage(`Failed to create template: ${error.message}`);
+        return;
+      }
       setToastMessage("Template created successfully.");
     } else {
-      setTemplates((current) =>
-        current.map((template) => (template.id === payload.id ? payload : template)),
-      );
+      const { error } = await supabase
+        .from("templates")
+        .update(dbPayload)
+        .eq("id", templateEditorDraft.id);
+      if (error) {
+        setToastMessage(`Failed to update template: ${error.message}`);
+        return;
+      }
       setToastMessage("Template updated successfully.");
     }
 
+    await loadTemplates();
     navigate("/admin-dashboard/templates");
   };
 
-  const duplicateTemplate = (templateId) => {
-    setTemplates((current) => {
-      const source = current.find((template) => template.id === templateId);
-      if (!source) return current;
-      const copy = cloneTemplate(source);
-      copy.id = makeId("template");
-      copy.name = `${source.name} (Copy)`;
-      copy.status = "draft";
-      copy.updatedAt = todayISO();
-      return [copy, ...current];
-    });
+  const duplicateTemplate = async (templateId) => {
+    const source = templates.find((template) => template.id === templateId);
+    if (!source) return;
+
+    const copyPayload = {
+      name: `${source.name} (Copy)`,
+      description: source.description ?? "",
+      type: source.type ?? "MoM",
+      status: "draft",
+      sector: source.sector ?? "General",
+      created_by: source.createdBy ?? "Admin",
+      schema_json: { sections: source.sections ?? [] },
+    };
+
+    const { error } = await supabase.from("templates").insert(copyPayload);
+    if (error) {
+      setToastMessage(`Failed to duplicate template: ${error.message}`);
+      return;
+    }
+
+    await loadTemplates();
     setToastMessage("Template duplicated.");
   };
 
-  const setTemplateAsActive = (templateId) => {
-    setTemplates((current) =>
-      current.map((template) => ({
-        ...template,
-        status: template.id === templateId ? "active" : "draft",
-      })),
-    );
+  const setTemplateAsActive = async (templateId) => {
+    const { error: resetError } = await supabase
+      .from("templates")
+      .update({ status: "draft" })
+      .eq("status", "active");
+
+    if (resetError) {
+      setToastMessage(`Failed to update template status: ${resetError.message}`);
+      return;
+    }
+
+    const { error: activateError } = await supabase
+      .from("templates")
+      .update({ status: "active" })
+      .eq("id", templateId);
+
+    if (activateError) {
+      setToastMessage(`Failed to set active template: ${activateError.message}`);
+      return;
+    }
+
+    await loadTemplates();
     setToastMessage("Template set as active.");
   };
 
-  const deleteTemplate = () => {
+  const deleteTemplate = async () => {
     if (!templateDeleteTarget) return;
-    setTemplates((current) =>
-      current.filter((template) => template.id !== templateDeleteTarget.id),
-    );
+
+    const { error } = await supabase
+      .from("templates")
+      .delete()
+      .eq("id", templateDeleteTarget.id);
+
+    if (error) {
+      setToastMessage(`Failed to delete template: ${error.message}`);
+      return;
+    }
+
+    await loadTemplates();
     setTemplateDeleteTarget(null);
     setToastMessage("Template deleted.");
   };
@@ -834,12 +1032,27 @@ function AdminDashboard() {
           </header>
 
           <div className="space-y-6 p-6 lg:p-8">
-            {activeView === "dashboard" ? <DashboardView stats={stats} /> : null}
+            {activeView === "dashboard" ? (
+              <DashboardView
+                applicationsError={applicationsError}
+                applicationsLoading={applicationsLoading}
+                onRetryApplications={loadApplications}
+                stageData={stageData}
+                stats={stats}
+              />
+            ) : null}
             {activeView === "users" ? (
-              <UsersView onEditRole={openRoleAssignment} users={users} />
+              <UsersView
+                error={usersError}
+                loading={usersLoading}
+                onEditRole={openRoleAssignment}
+                onRetry={loadUsers}
+                users={users}
+              />
             ) : null}
             {activeView === "role-assignment" ? (
               <RoleAssignmentView
+                loading={usersLoading}
                 onSave={saveRoleAssignment}
                 pendingRole={pendingRole}
                 selectedUser={selectedUser}
@@ -850,8 +1063,11 @@ function AdminDashboard() {
             ) : null}
             {activeView === "sectors" ? (
               <SectorsView
+                error={sectorsError}
+                loading={sectorsLoading}
                 onAddSector={openAddSector}
                 onEditSector={openEditSector}
+                onRetry={loadSectors}
                 sectors={sectors}
               />
             ) : null}
@@ -859,6 +1075,7 @@ function AdminDashboard() {
               <SectorParametersView
                 mode={sectorMode}
                 onSave={saveSector}
+                saving={sectorsSaving}
                 sectorForm={sectorForm}
                 selectedSector={selectedSector}
                 setSectorForm={setSectorForm}
@@ -867,12 +1084,15 @@ function AdminDashboard() {
 
             {activeView === "templates" ? (
               <TemplatesListView
+                error={templatesError}
                 filteredTemplates={filteredTemplates}
+                loading={templatesLoading}
                 onCreate={openCreateTemplate}
                 onDeleteAsk={setTemplateDeleteTarget}
                 onDuplicate={duplicateTemplate}
                 onEdit={openEditTemplate}
                 onPreview={openPreviewTemplate}
+                onRetry={loadTemplates}
                 onSetActive={setTemplateAsActive}
                 search={templateSearch}
                 setSearch={setTemplateSearch}
@@ -940,7 +1160,17 @@ function AdminDashboard() {
   );
 }
 
-function DashboardView({ stats }) {
+function DashboardView({
+  stats,
+  stageData,
+  applicationsLoading,
+  applicationsError,
+  onRetryApplications,
+}) {
+  const highestWorkflowCount = Math.max(...stageData.map((item) => item.value), 0);
+  const yAxisMax = Math.max(highestWorkflowCount, 1);
+  const chartHeightPx = Math.min(Math.max(yAxisMax * 28, 260), 520);
+
   return (
     <>
       <section className="flex flex-wrap items-start justify-between gap-4">
@@ -1030,23 +1260,61 @@ function DashboardView({ stats }) {
           </div>
 
           <div className="mt-5 rounded-xl border border-slate-100 bg-[#fbfcfb] p-4">
-            <div className="flex h-[260px] items-end justify-between gap-3">
-              {stageData.map((item) => (
-                <div className="flex flex-1 flex-col items-center gap-3" key={item.stage}>
-                  <div
-                    className="w-full max-w-[74px] rounded-t-lg bg-gradient-to-t from-[#124734]/90 to-[#2b7f5d]/40"
-                    style={{ height: `${item.value}%` }}
-                  />
+            {applicationsLoading ? (
+              <div className="flex h-[300px] items-center justify-center text-[22px] text-[#5c6f89]">
+                Loading stage data from database...
+              </div>
+            ) : applicationsError ? (
+              <div className="flex h-[300px] flex-col items-center justify-center gap-3 text-center">
+                <p className="text-[21px] font-medium text-rose-700">{applicationsError}</p>
+                <button
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[18px] font-semibold text-[#124734] hover:bg-[#f2f8f4]"
+                  onClick={onRetryApplications}
+                  type="button"
+                >
+                  Retry
+                </button>
+              </div>
+            ) : (
+              <>
+                <div className="mb-2 text-right text-[16px] font-semibold text-[#6a7e9a]">
+                  Y-axis max: {highestWorkflowCount}
                 </div>
-              ))}
-            </div>
-            <div className="mt-4 flex items-center justify-between gap-2 text-center text-[24px] font-semibold text-[#4d6584]">
-              {stageData.map((item) => (
-                <span className="flex-1" key={item.stage}>
-                  {item.stage}
-                </span>
-              ))}
-            </div>
+                <div
+                  className="flex items-end justify-between gap-3"
+                  style={{ height: `${chartHeightPx}px` }}
+                >
+                  {stageData.map((item) => {
+                    const ratio = item.value / yAxisMax;
+                    const barHeight =
+                      item.value === 0
+                        ? 0
+                        : Math.max(10, Math.round(ratio * 100));
+                    return (
+                      <div
+                        className="flex h-full flex-1 flex-col items-center justify-end gap-3"
+                        key={item.stage}
+                      >
+                        <span className="text-[18px] font-semibold text-[#2f4f75]">
+                          {item.value}
+                        </span>
+                        <div
+                          className="w-full max-w-[74px] rounded-t-lg bg-gradient-to-t from-[#124734]/90 to-[#2b7f5d]/40"
+                          style={{ height: `${barHeight}%` }}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="mt-4 flex items-center justify-between gap-2 text-center text-[24px] font-semibold text-[#4d6584]">
+                  {stageData.map((item) => (
+                    <span className="flex-1" key={item.stage}>
+                      {item.stage}
+                    </span>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         </article>
       </section>
@@ -1054,7 +1322,7 @@ function DashboardView({ stats }) {
   );
 }
 
-function UsersView({ users, onEditRole }) {
+function UsersView({ users, onEditRole, loading, error, onRetry }) {
   return (
     <section className="space-y-4">
       <div>
@@ -1087,6 +1355,39 @@ function UsersView({ users, onEditRole }) {
               </tr>
             </thead>
             <tbody>
+              {loading ? (
+                <tr>
+                  <td className="px-5 py-8 text-[21px] text-[#5c6f89]" colSpan={5}>
+                    Loading users from Supabase...
+                  </td>
+                </tr>
+              ) : null}
+
+              {!loading && error ? (
+                <tr>
+                  <td className="px-5 py-8 text-[21px] text-rose-700" colSpan={5}>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <span>{error}</span>
+                      <button
+                        className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[18px] font-semibold text-[#124734] hover:bg-[#f2f8f4]"
+                        onClick={onRetry}
+                        type="button"
+                      >
+                        Retry
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ) : null}
+
+              {!loading && !error && users.length === 0 ? (
+                <tr>
+                  <td className="px-5 py-8 text-[21px] text-[#5c6f89]" colSpan={5}>
+                    No users found in database.
+                  </td>
+                </tr>
+              ) : null}
+
               {users.map((user) => (
                 <tr className="border-b border-slate-100 last:border-b-0" key={user.username}>
                   <td className="px-5 py-3 text-[22px] font-semibold text-[#1f3048]">
@@ -1096,7 +1397,7 @@ function UsersView({ users, onEditRole }) {
                   <td className="px-5 py-3 text-[22px] text-[#5c6f89]">{user.email}</td>
                   <td className="px-5 py-3">
                     <span className="rounded-md bg-[#dff0e7] px-2.5 py-1 text-[20px] font-semibold text-[#124734]">
-                      {user.role}
+                      {roleLabel(user.role)}
                     </span>
                   </td>
                   <td className="px-5 py-3">
@@ -1125,6 +1426,7 @@ function RoleAssignmentView({
   pendingRole,
   setPendingRole,
   onSave,
+  loading,
 }) {
   return (
     <section className="space-y-4">
@@ -1133,11 +1435,15 @@ function RoleAssignmentView({
           Role Assignment
         </h1>
         <p className="mt-2 text-[29px] text-[#5a6f8d]">
-          Assign `MoM`, `Scrutiny`, or `Admin` role to a selected user.
+          Assign role to a selected user from database-backed records.
         </p>
       </div>
 
       <article className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        {loading ? (
+          <p className="mb-4 text-[20px] text-[#5c6f89]">Loading users...</p>
+        ) : null}
+
         <div className="grid gap-4 md:grid-cols-2">
           <label className="space-y-2">
             <span className="block text-[22px] font-semibold text-[#304763]">User</span>
@@ -1161,10 +1467,11 @@ function RoleAssignmentView({
               onChange={(event) => setPendingRole(event.target.value)}
               value={pendingRole}
             >
-              <option value="MoM">MoM</option>
-              <option value="Scrutiny">Scrutiny</option>
-              <option value="Admin">Admin</option>
-              <option value="Proponent">Proponent</option>
+              {ROLE_OPTIONS.map((roleOption) => (
+                <option key={roleOption.value} value={roleOption.value}>
+                  {roleOption.label}
+                </option>
+              ))}
             </select>
           </label>
         </div>
@@ -1183,7 +1490,7 @@ function RoleAssignmentView({
             </p>
             <p className="mt-1 text-[22px] text-[#415a79]">
               <span className="font-semibold text-[#1f3048]">Current Role:</span>{" "}
-              {selectedUser.role}
+              {roleLabel(selectedUser.role)}
             </p>
           </div>
         ) : null}
@@ -1191,6 +1498,7 @@ function RoleAssignmentView({
         <div className="mt-5">
           <button
             className="inline-flex items-center rounded-xl bg-[#124734] px-5 py-2.5 text-[22px] font-semibold text-white shadow-[0_12px_24px_rgba(18,71,52,0.2)] hover:bg-[#0f3a2b]"
+            disabled={!selectedUser || loading}
             onClick={onSave}
             type="button"
           >
@@ -1202,7 +1510,7 @@ function RoleAssignmentView({
   );
 }
 
-function SectorsView({ sectors, onAddSector, onEditSector }) {
+function SectorsView({ sectors, onAddSector, onEditSector, loading, error, onRetry }) {
   return (
     <section className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -1239,6 +1547,39 @@ function SectorsView({ sectors, onAddSector, onEditSector }) {
               </tr>
             </thead>
             <tbody>
+              {loading ? (
+                <tr>
+                  <td className="px-5 py-8 text-[21px] text-[#5c6f89]" colSpan={3}>
+                    Loading sectors from database...
+                  </td>
+                </tr>
+              ) : null}
+
+              {!loading && error ? (
+                <tr>
+                  <td className="px-5 py-8 text-[21px] text-rose-700" colSpan={3}>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <span>{error}</span>
+                      <button
+                        className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[18px] font-semibold text-[#124734] hover:bg-[#f2f8f4]"
+                        onClick={onRetry}
+                        type="button"
+                      >
+                        Retry
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ) : null}
+
+              {!loading && !error && sectors.length === 0 ? (
+                <tr>
+                  <td className="px-5 py-8 text-[21px] text-[#5c6f89]" colSpan={3}>
+                    No sectors found in database.
+                  </td>
+                </tr>
+              ) : null}
+
               {sectors.map((sector) => (
                 <tr className="border-b border-slate-100 last:border-b-0" key={sector.id}>
                   <td className="px-5 py-3 text-[22px] font-semibold text-[#1f3048]">
@@ -1266,7 +1607,14 @@ function SectorsView({ sectors, onAddSector, onEditSector }) {
   );
 }
 
-function SectorParametersView({ mode, selectedSector, sectorForm, setSectorForm, onSave }) {
+function SectorParametersView({
+  mode,
+  selectedSector,
+  sectorForm,
+  setSectorForm,
+  onSave,
+  saving,
+}) {
   const title =
     mode === "add" ? "Sector Parameters - Add New Sector" : "Sector Parameters - Edit Sector";
 
@@ -1332,10 +1680,11 @@ function SectorParametersView({ mode, selectedSector, sectorForm, setSectorForm,
         <div className="mt-5">
           <button
             className="inline-flex items-center rounded-xl bg-[#124734] px-5 py-2.5 text-[22px] font-semibold text-white shadow-[0_12px_24px_rgba(18,71,52,0.2)] hover:bg-[#0f3a2b]"
+            disabled={saving}
             onClick={onSave}
             type="button"
           >
-            Save Sector Parameters
+            {saving ? "Saving..." : "Save Sector Parameters"}
           </button>
         </div>
       </article>
@@ -1344,12 +1693,15 @@ function SectorParametersView({ mode, selectedSector, sectorForm, setSectorForm,
 }
 
 function TemplatesListView({
+  loading,
+  error,
   filteredTemplates,
   onCreate,
   onDeleteAsk,
   onDuplicate,
   onEdit,
   onPreview,
+  onRetry,
   onSetActive,
   search,
   setSearch,
@@ -1428,7 +1780,38 @@ function TemplatesListView({
               </tr>
             </thead>
             <tbody>
-              {filteredTemplates.length === 0 ? (
+              {loading ? (
+                <tr>
+                  <td
+                    className="px-5 py-10 text-center text-[22px] text-[#5c6f89]"
+                    colSpan={7}
+                  >
+                    Loading templates from database...
+                  </td>
+                </tr>
+              ) : null}
+
+              {!loading && error ? (
+                <tr>
+                  <td
+                    className="px-5 py-10 text-center text-[22px] text-rose-700"
+                    colSpan={7}
+                  >
+                    <div className="flex flex-wrap items-center justify-center gap-3">
+                      <span>{error}</span>
+                      <button
+                        className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[18px] font-semibold text-[#124734] hover:bg-[#f2f8f4]"
+                        onClick={onRetry}
+                        type="button"
+                      >
+                        Retry
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ) : null}
+
+              {!loading && !error && filteredTemplates.length === 0 ? (
                 <tr>
                   <td
                     className="px-5 py-10 text-center text-[22px] text-[#5c6f89]"
@@ -1439,63 +1822,71 @@ function TemplatesListView({
                 </tr>
               ) : null}
 
-              {filteredTemplates.map((template) => (
-                <tr className="border-b border-slate-100 last:border-b-0" key={template.id}>
-                  <td className="px-5 py-3 text-[22px] font-semibold text-[#1f3048]">
-                    {template.name}
-                  </td>
-                  <td className="px-5 py-3 text-[21px] text-[#5c6f89]">{template.type}</td>
-                  <td className="px-5 py-3 text-[21px] text-[#5c6f89]">{template.sector}</td>
-                  <td className="px-5 py-3 text-[21px] text-[#5c6f89]">{template.updatedAt}</td>
-                  <td className="px-5 py-3 text-[21px] text-[#5c6f89]">{template.createdBy}</td>
-                  <td className="px-5 py-3">
-                    <StatusChip status={template.status} />
-                  </td>
-                  <td className="px-5 py-3">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <button
-                        className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[18px] font-semibold text-[#124734] hover:bg-[#f2f8f4]"
-                        onClick={() => onEdit(template.id)}
-                        type="button"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[18px] font-semibold text-[#124734] hover:bg-[#f2f8f4]"
-                        onClick={() => onPreview(template.id)}
-                        type="button"
-                      >
-                        <Eye className="h-4 w-4" />
-                        Preview
-                      </button>
-                      <button
-                        className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[18px] font-semibold text-[#124734] hover:bg-[#f2f8f4]"
-                        onClick={() => onDuplicate(template.id)}
-                        type="button"
-                      >
-                        <Copy className="h-4 w-4" />
-                        Duplicate
-                      </button>
-                      <button
-                        className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[18px] font-semibold text-[#124734] hover:bg-[#f2f8f4] disabled:cursor-not-allowed disabled:opacity-55"
-                        disabled={template.status === "active"}
-                        onClick={() => onSetActive(template.id)}
-                        type="button"
-                      >
-                        Set Active
-                      </button>
-                      <button
-                        className="inline-flex items-center gap-1 rounded-lg border border-rose-200 bg-white px-2.5 py-1.5 text-[18px] font-semibold text-rose-700 hover:bg-rose-50"
-                        onClick={() => onDeleteAsk(template)}
-                        type="button"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                        Delete
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              {!loading && !error
+                ? filteredTemplates.map((template) => (
+                    <tr className="border-b border-slate-100 last:border-b-0" key={template.id}>
+                      <td className="px-5 py-3 text-[22px] font-semibold text-[#1f3048]">
+                        {template.name}
+                      </td>
+                      <td className="px-5 py-3 text-[21px] text-[#5c6f89]">{template.type}</td>
+                      <td className="px-5 py-3 text-[21px] text-[#5c6f89]">
+                        {template.sector}
+                      </td>
+                      <td className="px-5 py-3 text-[21px] text-[#5c6f89]">
+                        {template.updatedAt}
+                      </td>
+                      <td className="px-5 py-3 text-[21px] text-[#5c6f89]">
+                        {template.createdBy}
+                      </td>
+                      <td className="px-5 py-3">
+                        <StatusChip status={template.status} />
+                      </td>
+                      <td className="px-5 py-3">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <button
+                            className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[18px] font-semibold text-[#124734] hover:bg-[#f2f8f4]"
+                            onClick={() => onEdit(template.id)}
+                            type="button"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[18px] font-semibold text-[#124734] hover:bg-[#f2f8f4]"
+                            onClick={() => onPreview(template.id)}
+                            type="button"
+                          >
+                            <Eye className="h-4 w-4" />
+                            Preview
+                          </button>
+                          <button
+                            className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[18px] font-semibold text-[#124734] hover:bg-[#f2f8f4]"
+                            onClick={() => onDuplicate(template.id)}
+                            type="button"
+                          >
+                            <Copy className="h-4 w-4" />
+                            Duplicate
+                          </button>
+                          <button
+                            className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[18px] font-semibold text-[#124734] hover:bg-[#f2f8f4] disabled:cursor-not-allowed disabled:opacity-55"
+                            disabled={template.status === "active"}
+                            onClick={() => onSetActive(template.id)}
+                            type="button"
+                          >
+                            Set Active
+                          </button>
+                          <button
+                            className="inline-flex items-center gap-1 rounded-lg border border-rose-200 bg-white px-2.5 py-1.5 text-[18px] font-semibold text-rose-700 hover:bg-rose-50"
+                            onClick={() => onDeleteAsk(template)}
+                            type="button"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                            Delete
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                : null}
             </tbody>
           </table>
         </div>
