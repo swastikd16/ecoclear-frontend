@@ -1,0 +1,30 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: Inter, "Segoe UI", system-ui, sans-serif;
+}
+
+@layer base {
+  body {
+    @apply bg-[#f5f7f6] text-slate-900;
+  }
+}
+
+@layer components {
+  .auth-shell a:hover,
+  .auth-shell button:hover {
+    transform: none;
+  }
+
+  .auth-input-base {
+    @apply w-full rounded-2xl border border-slate-200 bg-white px-4 py-3.5 text-sm text-slate-900 outline-none transition focus:border-[#124734] focus:ring-4 focus:ring-[#124734]/10;
+  }
+
+  .auth-card-shadow {
+    box-shadow:
+      0 20px 45px rgba(15, 23, 42, 0.06),
+      0 6px 12px rgba(18, 71, 52, 0.04);
+  }
+}
