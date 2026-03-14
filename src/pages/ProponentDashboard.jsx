@@ -1125,15 +1125,6 @@ function ProponentDashboard() {
                 <section className="dashboard-panel">
                   <div className="dashboard-panel-header">
                     <h2>Recent Applications</h2>
-                    <div className="dashboard-panel-actions">
-                      <button className="dashboard-ghost-button" type="button">
-                        <FilterIcon />
-                        <span>Filter</span>
-                      </button>
-                      <button className="dashboard-ghost-button" type="button">
-                        <span>Export</span>
-                      </button>
-                    </div>
                   </div>
 
                   {applicationsError ? (
@@ -2354,14 +2345,6 @@ function PlusIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M12 5v14M5 12h14" />
-    </svg>
-  );
-}
-
-function FilterIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M4 7h16M7.5 12h9M10.5 17h3" />
     </svg>
   );
 }

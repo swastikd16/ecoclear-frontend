@@ -272,7 +272,7 @@ function LandingPage() {
         ))}
 
         <div className="footer-note">
-          <p>(c) 2024 EcoClear Systems. All rights reserved. Built for a greener future.</p>
+          <p>(c) 2026 EcoClear Systems. All rights reserved. Built for a greener future.</p>
         </div>
       </footer>
     </div>
