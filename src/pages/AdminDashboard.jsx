@@ -240,6 +240,7 @@ function AdminDashboard() {
     name: "",
     parametersText: "",
   });
+  const [sectorDeleteTarget, setSectorDeleteTarget] = useState(null);
 
   const [templates, setTemplates] = useState([]);
   const [templatesLoading, setTemplatesLoading] = useState(true);
@@ -679,6 +680,45 @@ function AdminDashboard() {
     navigate("/admin-dashboard/sectors");
   };
 
+  const deleteSector = async () => {
+    if (!sectorDeleteTarget?.id) return;
+
+    const sectorName = sectorDeleteTarget.name;
+
+    const { data: deletedApplications, error: deleteApplicationsError } = await supabase
+      .from("applications")
+      .delete()
+      .eq("sector_category", sectorName)
+      .select("id");
+
+    if (deleteApplicationsError) {
+      setToastMessage(
+        `Failed to delete applications in "${sectorName}": ${deleteApplicationsError.message}`,
+      );
+      return;
+    }
+
+    const { error } = await supabase
+      .from("sectors")
+      .delete()
+      .eq("id", sectorDeleteTarget.id);
+
+    if (error) {
+      setToastMessage(`Failed to delete sector: ${error.message}`);
+      return;
+    }
+
+    const deletedCount = Array.isArray(deletedApplications) ? deletedApplications.length : 0;
+    setToastMessage(
+      `Sector deleted successfully. ${deletedCount} application${
+        deletedCount === 1 ? "" : "s"
+      } removed.`,
+    );
+    setSectorDeleteTarget(null);
+    await loadSectors();
+    await loadApplications();
+  };
+
   const openTemplatesList = () => {
     navigate("/admin-dashboard/templates");
   };
@@ -1070,6 +1110,7 @@ function AdminDashboard() {
                 error={sectorsError}
                 loading={sectorsLoading}
                 onAddSector={openAddSector}
+                onDeleteAsk={setSectorDeleteTarget}
                 onEditSector={openEditSector}
                 onRetry={loadSectors}
                 sectors={sectors}
@@ -1142,6 +1183,16 @@ function AdminDashboard() {
           onCancel={() => setTemplateDeleteTarget(null)}
           onConfirm={deleteTemplate}
           title="Delete Template"
+        />
+      ) : null}
+
+      {sectorDeleteTarget ? (
+        <ConfirmModal
+          confirmLabel="Delete Sector"
+          description={`Delete "${sectorDeleteTarget.name}"? This action cannot be undone.`}
+          onCancel={() => setSectorDeleteTarget(null)}
+          onConfirm={deleteSector}
+          title="Delete Sector"
         />
       ) : null}
 
@@ -1518,7 +1569,15 @@ function RoleAssignmentView({
   );
 }
 
-function SectorsView({ sectors, onAddSector, onEditSector, loading, error, onRetry }) {
+function SectorsView({
+  sectors,
+  onAddSector,
+  onEditSector,
+  onDeleteAsk,
+  loading,
+  error,
+  onRetry,
+}) {
   return (
     <section className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -1597,13 +1656,22 @@ function SectorsView({ sectors, onAddSector, onEditSector, loading, error, onRet
                     {sector.parameters.join(", ")}
                   </td>
                   <td className="px-5 py-3">
-                    <button
-                      className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[20px] font-semibold text-[#124734] hover:bg-[#f2f8f4]"
-                      onClick={() => onEditSector(sector.id)}
-                      type="button"
-                    >
-                      Edit Sector
-                    </button>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[20px] font-semibold text-[#124734] hover:bg-[#f2f8f4]"
+                        onClick={() => onEditSector(sector.id)}
+                        type="button"
+                      >
+                        Edit Sector
+                      </button>
+                      <button
+                        className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-[20px] font-semibold text-rose-700 hover:bg-rose-100"
+                        onClick={() => onDeleteAsk?.(sector)}
+                        type="button"
+                      >
+                        Delete Sector
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
