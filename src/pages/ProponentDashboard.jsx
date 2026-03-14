@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import {
+  getAiBackendBaseUrl,
+  getAiBackendMissingConfigMessage,
+} from "../lib/aiBackendUrl";
 import { supabase } from "../lib/supabaseClient";
 import { exportFinalizedApplicationPdf } from "../utils/pdfExport";
 
@@ -10,8 +14,7 @@ const DEFAULT_PAYMENT_SETTINGS = {
   upiName: "EcoClear Compliance Board",
   qrImageUrl: "",
 };
-const LOCAL_AI_BACKEND_URL =
-  import.meta.env.VITE_AI_BACKEND_URL || "http://localhost:8787";
+const AI_BACKEND_BASE_URL = getAiBackendBaseUrl();
 
 const STATUS_LABELS = {
   draft: "Draft",
@@ -225,6 +228,10 @@ function ProponentDashboard() {
   const sendProponentChatMessage = async () => {
     const message = chatInput.trim();
     if (!message || isChatLoading) return;
+    if (!AI_BACKEND_BASE_URL) {
+      setChatError(getAiBackendMissingConfigMessage());
+      return;
+    }
 
     const historyForApi = chatMessages.map((item) => ({
       role: item.role,
@@ -237,7 +244,7 @@ function ProponentDashboard() {
     setIsChatLoading(true);
 
     try {
-      const response = await fetch(`${LOCAL_AI_BACKEND_URL}/api/proponent/chat-assist`, {
+      const response = await fetch(`${AI_BACKEND_BASE_URL}/api/proponent/chat-assist`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

@@ -2,9 +2,7 @@ import {
   Archive,
   Bell,
   CheckCircle2,
-  ChevronDown,
   Copy,
-  Download,
   Eye,
   FilePlus2,
   FileText,
@@ -18,7 +16,6 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Trash2,
-  UserCircle2,
   UserCog,
   Users,
   X,
@@ -36,7 +33,6 @@ const navItems = [
   { key: "sector-parameters", label: "Sector Parameters", icon: SlidersHorizontal },
   { key: "templates", label: "Templates", icon: FileText },
   { key: "audit-logs", label: "Audit Logs", icon: Archive },
-  { key: "profile", label: "Profile", icon: UserCircle2 },
 ];
 
 const APPLICATION_STAGE_ORDER = [
@@ -250,6 +246,7 @@ function AdminDashboard() {
   );
   const [applicationsLoading, setApplicationsLoading] = useState(true);
   const [applicationsError, setApplicationsError] = useState("");
+  const [stageWindowDays, setStageWindowDays] = useState("30");
   const [paymentLogs, setPaymentLogs] = useState([]);
   const [paymentLogsLoading, setPaymentLogsLoading] = useState(true);
   const [paymentLogsError, setPaymentLogsError] = useState("");
@@ -461,11 +458,19 @@ function AdminDashboard() {
     setSectorsLoading(false);
   };
 
-  const loadApplications = async () => {
+  const loadApplications = async (windowDays = stageWindowDays) => {
     setApplicationsLoading(true);
     setApplicationsError("");
 
-    const { data, error } = await supabase.from("applications").select("status");
+    const parsedDays = Number.parseInt(windowDays, 10);
+    const safeDays = Number.isNaN(parsedDays) ? 30 : parsedDays;
+    const fromDate = new Date();
+    fromDate.setDate(fromDate.getDate() - safeDays);
+
+    const { data, error } = await supabase
+      .from("applications")
+      .select("status, created_at")
+      .gte("created_at", fromDate.toISOString());
 
     if (error) {
       setApplicationsError(error.message || "Failed to load application stage data.");
@@ -576,10 +581,13 @@ function AdminDashboard() {
   useEffect(() => {
     loadUsers();
     loadSectors();
-    loadApplications();
     loadTemplates();
     loadPaymentLogs();
   }, []);
+
+  useEffect(() => {
+    loadApplications(stageWindowDays);
+  }, [stageWindowDays]);
 
   useEffect(() => {
     const path = location.pathname.replace(/\/+$/, "");
@@ -1235,7 +1243,9 @@ function AdminDashboard() {
                 applicationsLoading={applicationsLoading}
                 onRetryApplications={loadApplications}
                 stageData={stageData}
+                stageWindowDays={stageWindowDays}
                 stats={stats}
+                setStageWindowDays={setStageWindowDays}
                 totalApplicationsCount={totalApplicationsCount}
               />
             ) : null}
@@ -1383,6 +1393,8 @@ function DashboardView({
   applicationsLoading,
   applicationsError,
   onRetryApplications,
+  stageWindowDays,
+  setStageWindowDays,
   totalApplicationsCount,
 }) {
   const highestWorkflowCount = Math.max(...stageData.map((item) => item.value), 0);
@@ -1401,22 +1413,6 @@ function DashboardView({
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
-          <button
-            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-[29px] font-semibold text-slate-700 hover:bg-slate-50"
-            type="button"
-          >
-            <Download className="h-[18px] w-[18px]" />
-            Export Data
-          </button>
-          <button
-            className="inline-flex items-center gap-2 rounded-xl bg-[#124734] px-4 py-2.5 text-[29px] font-semibold text-white shadow-[0_12px_24px_rgba(18,71,52,0.2)] hover:bg-[#0f3a2b]"
-            type="button"
-          >
-            <Plus className="h-[18px] w-[18px]" />
-            New User
-          </button>
-        </div>
       </section>
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -1471,13 +1467,16 @@ function DashboardView({
                 Total Applications: {totalApplicationsCount.toLocaleString()}
               </p>
             </div>
-            <button
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-[#f8faf9] px-3.5 py-2 text-[27px] text-slate-700"
-              type="button"
-            >
-              Last 30 Days
-              <ChevronDown className="h-4 w-4" />
-            </button>
+            <div className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-[#f8faf9] px-3.5 py-2 text-[20px] text-slate-700">
+              <select
+                className="bg-transparent text-[18px] font-medium text-slate-700 outline-none"
+                onChange={(event) => setStageWindowDays(event.target.value)}
+                value={stageWindowDays}
+              >
+                <option value="7">Last 7 Days</option>
+                <option value="30">Last 30 Days</option>
+              </select>
+            </div>
           </div>
 
           <div className="mt-5 rounded-xl border border-slate-100 bg-[#fbfcfb] p-4">

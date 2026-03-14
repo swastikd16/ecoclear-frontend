@@ -16,12 +16,15 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import {
+  getAiBackendBaseUrl,
+  getAiBackendMissingConfigMessage,
+} from "../lib/aiBackendUrl";
 import { supabase } from "../lib/supabaseClient";
 import { exportScrutinyDocumentPdf } from "../utils/pdfExport";
 
 const APPLICATION_DOCUMENT_BUCKET = "application-documents";
-const LOCAL_AI_BACKEND_URL =
-  import.meta.env.VITE_AI_BACKEND_URL || "http://localhost:8787";
+const AI_BACKEND_BASE_URL = getAiBackendBaseUrl();
 
 const sidebarItems = [
   { key: "dashboard", label: "Dashboard", icon: LayoutDashboard, route: "/scrutiny-dashboard" },
@@ -349,6 +352,10 @@ function ScrutinyDashboard() {
   const approveCase = async (caseId) => {
     const currentCase = cases.find((item) => item.id === caseId);
     if (!currentCase?.dbId) return;
+    if (!AI_BACKEND_BASE_URL) {
+      setApprovalErrorMessage(getAiBackendMissingConfigMessage());
+      return;
+    }
 
     setApprovalErrorMessage("");
     setApprovalProgressMessage("Extracting PDFs and preparing AI gist...");
@@ -359,7 +366,7 @@ function ScrutinyDashboard() {
 
     try {
       const response = await fetch(
-        `${LOCAL_AI_BACKEND_URL}/api/scrutiny/approve-and-generate-gist`,
+        `${AI_BACKEND_BASE_URL}/api/scrutiny/approve-and-generate-gist`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
