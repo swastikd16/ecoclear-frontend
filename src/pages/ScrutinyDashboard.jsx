@@ -48,7 +48,7 @@ const sidebarItems = [
 function ScrutinyDashboard() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { signOut, user } = useAuth();
+  const { signOut, user, profile } = useAuth();
   const [cases, setCases] = useState([]);
   const [casesLoading, setCasesLoading] = useState(true);
   const [casesError, setCasesError] = useState("");
@@ -93,6 +93,9 @@ function ScrutinyDashboard() {
     () => cases.find((item) => item.id === currentView.reviewId) ?? null,
     [cases, currentView.reviewId],
   );
+  const sidebarUserName =
+    profile?.full_name?.trim() || profile?.username?.trim() || user?.username || "User";
+  const sidebarUserRole = formatRoleLabel(profile?.role);
 
   const activeSidebarKey =
     currentView.type === "review" ? "under-scrutiny" : currentView.type;
@@ -488,8 +491,8 @@ function ScrutinyDashboard() {
             <div className="mt-3 flex items-center gap-3">
               <div className="h-11 w-11 rounded-full bg-slate-200" />
               <div>
-                <p className="text-[28px] font-semibold text-[#1f3048]">Alex Henderson</p>
-                <p className="text-lg text-slate-500">Lead Scrutinizer</p>
+                <p className="text-[28px] font-semibold text-[#1f3048]">{sidebarUserName}</p>
+                <p className="text-lg text-slate-500">{sidebarUserRole}</p>
               </div>
             </div>
           </div>
@@ -1101,6 +1104,16 @@ function normalizeSectorKey(value) {
   return String(value ?? "")
     .trim()
     .toLowerCase();
+}
+
+function formatRoleLabel(value) {
+  const normalized = String(value ?? "")
+    .trim()
+    .toLowerCase();
+  if (normalized === "admin") return "Admin";
+  if (normalized === "scrutiny_team" || normalized === "scrutiny") return "Scrutiny Team";
+  if (normalized === "mom_team" || normalized === "mom") return "MoM Team";
+  return "Proponent";
 }
 
 export default ScrutinyDashboard;

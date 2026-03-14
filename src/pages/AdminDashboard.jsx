@@ -238,7 +238,7 @@ function createNewTemplateDraft(sectors) {
 function AdminDashboard() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { signOut } = useAuth();
+  const { signOut, user, profile } = useAuth();
   const [activeView, setActiveView] = useState("dashboard");
   const [users, setUsers] = useState([]);
   const [usersLoading, setUsersLoading] = useState(true);
@@ -282,6 +282,9 @@ function AdminDashboard() {
   const [previewTemplateId, setPreviewTemplateId] = useState(null);
   const [showSectionDeleteConfirm, setShowSectionDeleteConfirm] = useState(null);
   const [toastMessage, setToastMessage] = useState("");
+  const sidebarUserName =
+    profile?.full_name?.trim() || profile?.username?.trim() || user?.username || "User";
+  const sidebarUserRole = roleLabel(normalizeRoleValue(profile?.role));
 
   const selectedUser = useMemo(
     () => users.find((user) => user.username === selectedUsername) ?? null,
@@ -1183,8 +1186,8 @@ function AdminDashboard() {
               <div className="flex items-center gap-3">
                 <div className="h-11 w-11 rounded-full bg-slate-200" />
                 <div>
-                  <p className="text-[29px] font-semibold text-[#1f3048]">Alex Rivera</p>
-                  <p className="text-lg text-slate-500">Super Admin</p>
+                  <p className="text-[29px] font-semibold text-[#1f3048]">{sidebarUserName}</p>
+                  <p className="text-lg text-slate-500">{sidebarUserRole}</p>
                 </div>
               </div>
               <button

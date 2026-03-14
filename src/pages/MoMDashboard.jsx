@@ -64,6 +64,7 @@ function MoMDashboard() {
 
   const assigneeName =
     profile?.full_name?.trim() || profile?.username || "MoM Specialist";
+  const assigneeRoleLabel = formatRoleLabel(profile?.role);
 
   const currentView = useMemo(() => parseMomView(location.pathname), [location.pathname]);
   const referredCases = useMemo(() => cases.filter((item) => item.status === "Referred"), [cases]);
@@ -423,7 +424,7 @@ function MoMDashboard() {
               <div className="h-11 w-11 rounded-full bg-slate-200" />
               <div>
                 <p className="text-[28px] font-semibold text-[#1f3048]">{assigneeName}</p>
-                <p className="text-lg text-slate-500">MoM Specialist</p>
+                <p className="text-lg text-slate-500">{assigneeRoleLabel}</p>
               </div>
             </div>
           </div>
@@ -450,7 +451,7 @@ function MoMDashboard() {
               <span className="mx-1 h-8 w-px bg-slate-200" />
               <div className="hidden text-right sm:block">
                 <p className="text-[19px] font-semibold text-[#1f3048]">{assigneeName}</p>
-                <p className="text-sm text-slate-500">MoM Specialist</p>
+                <p className="text-sm text-slate-500">{assigneeRoleLabel}</p>
               </div>
               <div className="h-10 w-10 rounded-full bg-slate-200" />
               <button
@@ -1482,6 +1483,16 @@ function asObject(value) {
     return value;
   }
   return {};
+}
+
+function formatRoleLabel(value) {
+  const normalized = String(value ?? "")
+    .trim()
+    .toLowerCase();
+  if (normalized === "admin") return "Admin";
+  if (normalized === "scrutiny_team" || normalized === "scrutiny") return "Scrutiny Team";
+  if (normalized === "mom_team" || normalized === "mom") return "MoM Team";
+  return "Proponent";
 }
 
 export default MoMDashboard;

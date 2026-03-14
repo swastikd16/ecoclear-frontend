@@ -30,7 +30,7 @@ const STATUS_LABELS = {
 function ProponentDashboard() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { signOut, user } = useAuth();
+  const { signOut, user, profile } = useAuth();
   const normalizedPath = location.pathname.replace(/\/+$/, "") || "/";
   const isPaymentRoute = normalizedPath === "/proponent-dashboard/payment";
   const [activeView, setActiveView] = useState("dashboard");
@@ -947,6 +947,10 @@ function ProponentDashboard() {
     selectView("my-apps");
   };
 
+  const sidebarUserName =
+    profile?.full_name?.trim() || profile?.username?.trim() || user?.username || "User";
+  const sidebarUserRole = formatRoleLabel(profile?.role);
+
   return (
     <div className="dashboard-root">
       <div className="dashboard-shell">
@@ -977,8 +981,8 @@ function ProponentDashboard() {
               <span />
             </div>
             <div>
-              <strong>Alex Rivera</strong>
-              <span>Proponent Admin</span>
+              <strong>{sidebarUserName}</strong>
+              <span>{sidebarUserRole}</span>
             </div>
           </div>
         </aside>
@@ -1993,6 +1997,16 @@ function WorkflowStagesView({ application, onClose }) {
 
 function formatCount(value) {
   return String(value).padStart(2, "0");
+}
+
+function formatRoleLabel(value) {
+  const normalized = String(value ?? "")
+    .trim()
+    .toLowerCase();
+  if (normalized === "admin") return "Admin";
+  if (normalized === "scrutiny_team" || normalized === "scrutiny") return "Scrutiny Team";
+  if (normalized === "mom_team" || normalized === "mom") return "MoM Team";
+  return "Proponent";
 }
 
 function getApplicationValidationErrors({
