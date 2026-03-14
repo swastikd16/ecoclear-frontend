@@ -59,8 +59,8 @@ function ProponentDashboard() {
 
   const dashboardNavItems = [
     { key: "dashboard", label: "Dashboard", icon: <DashboardIcon /> },
-    { key: "new-app", label: "New App", icon: <PlusCircleIcon /> },
-    { key: "my-apps", label: "My Apps", icon: <DocumentIcon /> },
+    { key: "new-app", label: "New Application", icon: <PlusCircleIcon /> },
+    { key: "my-apps", label: "My Application", icon: <DocumentIcon /> },
     { key: "payments", label: "Payments", icon: <PaymentsIcon /> },
     { key: "tracking", label: "Tracking", icon: <PinIcon /> },
   ];
